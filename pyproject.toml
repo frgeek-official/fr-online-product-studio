@@ -24,6 +24,11 @@ dependencies = [
     "timm",
     "scipy",
     "scikit-learn",
+    "peft",
+    "datasets",
+    "accelerate",
+    "bitsandbytes",
+    "qwen-vl-utils",
 ]
 
 [project.optional-dependencies]

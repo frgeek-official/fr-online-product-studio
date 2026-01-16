@@ -64,4 +64,5 @@ class PillowCenterer:
             (left, upper, right, lower) のタプル、または内容がない場合はNone
         """
         alpha = image.getchannel("A")
-        return alpha.getbbox()
+        bbox: tuple[int, int, int, int] | None = alpha.getbbox()
+        return bbox
