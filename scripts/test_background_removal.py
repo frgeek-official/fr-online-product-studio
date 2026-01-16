@@ -1,4 +1,4 @@
-"""背景除去の動作確認スクリプト."""
+"""背景除去・中央配置の動作確認スクリプト."""
 
 import sys
 from pathlib import Path
@@ -6,6 +6,7 @@ from pathlib import Path
 from PIL import Image
 
 from fr_studio.infrastructure.birefnet_remover import BiRefNetRemover
+from fr_studio.infrastructure.pillow_centerer import PillowCenterer
 
 
 def main() -> None:
@@ -20,7 +21,8 @@ def main() -> None:
         print(f"Error: File not found: {input_path}")
         sys.exit(1)
 
-    output_path = input_path.parent / f"{input_path.stem}_nobg.png"
+    nobg_path = input_path.parent / f"{input_path.stem}_nobg.png"
+    centered_path = input_path.parent / f"{input_path.stem}_centered.png"
 
     print(f"Loading image: {input_path}")
     image = Image.open(input_path)
@@ -30,12 +32,21 @@ def main() -> None:
     remover = BiRefNetRemover()
 
     print("Removing background...")
-    result = remover.remove_background(image)
+    nobg_image = remover.remove_background(image)
 
-    print(f"Saving result: {output_path}")
-    result.save(output_path, "PNG")
+    print(f"Saving background removed: {nobg_path}")
+    nobg_image.save(nobg_path, "PNG")
+
+    print("Centering image on 1200x1200 canvas...")
+    centerer = PillowCenterer()
+    centered_image = centerer.center_image(nobg_image, (1200, 1200))
+
+    print(f"Saving centered: {centered_path}")
+    centered_image.save(centered_path, "PNG")
 
     print("Done!")
+    print(f"  Background removed: {nobg_path}")
+    print(f"  Centered (1200x1200): {centered_path}")
 
 
 if __name__ == "__main__":
