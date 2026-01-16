@@ -22,6 +22,8 @@ dependencies = [
     "einops",
     "kornia",
     "timm",
+    "scipy",
+    "scikit-learn",
 ]
 
 [project.optional-dependencies]
