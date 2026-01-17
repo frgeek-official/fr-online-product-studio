@@ -19,7 +19,7 @@ from transformers import (
 )
 
 
-MODEL_NAME = "tokyotech-llm/Swallow-7b-instruct-hf"
+MODEL_NAME = "stabilityai/japanese-stablelm-3b-4e1t-instruct"
 MAX_LENGTH = 512
 
 
@@ -88,7 +88,7 @@ def main() -> None:
     """メイン処理."""
     data_dir = Path("data/text_training")
     train_path = data_dir / "train.jsonl"
-    output_dir = Path("models/swallow_lora")
+    output_dir = Path("models/stablelm_lora")
 
     if not train_path.exists():
         print(f"Error: Training data not found: {train_path}")
@@ -129,7 +129,7 @@ def main() -> None:
         torch_dtype = torch.float32
         print("  Device: CPU")
 
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, trust_remote_code=True)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 

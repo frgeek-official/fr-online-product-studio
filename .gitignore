@@ -54,3 +54,5 @@ Thumbs.db
 
 # Project specific
 *.log
+data/
+models/

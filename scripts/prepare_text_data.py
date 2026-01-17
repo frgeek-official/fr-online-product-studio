@@ -24,12 +24,11 @@ INPUT_COLUMNS = [
     "hat_height",
     "hat_circumference",
     "brim",
-    "payment_method",
 ]
 
 COLUMN_LABELS = {
     "product_name": "商品名",
-    "price": "価格",
+    "price": "販売価格",
     "shoulder_width": "肩幅",
     "sleeve_length": "袖丈",
     "chest_width": "身幅",
@@ -40,10 +39,9 @@ COLUMN_LABELS = {
     "thigh_width": "わたり幅",
     "hem_width": "裾幅",
     "total_length": "全長",
-    "hat_height": "帽子高さ",
-    "hat_circumference": "頭回り",
+    "hat_height": "帽子・高さ",
+    "hat_circumference": "帽子・頭回り",
     "brim": "ツバ",
-    "payment_method": "支払い方法",
 }
 
 
@@ -99,7 +97,7 @@ def create_description_sample(row: dict[str, str]) -> dict[str, str] | None:
 def main() -> None:
     """メイン処理."""
     input_dir = Path("data/text_training")
-    csv_path = input_dir / "products.csv"
+    csv_path = input_dir / "source.csv"
     output_path = input_dir / "train.jsonl"
 
     if not csv_path.exists():
@@ -132,8 +130,12 @@ def main() -> None:
             f.write(json.dumps(sample, ensure_ascii=False) + "\n")
 
     print(f"Created {len(samples)} samples")
-    print(f"  Title samples: {len([s for s in samples if '商品タイトル' in s['input']])}")
-    print(f"  Description samples: {len([s for s in samples if '商品説明' in s['input']])}")
+    print(
+        f"  Title samples: {len([s for s in samples if '商品タイトル' in s['input']])}"
+    )
+    print(
+        f"  Description samples: {len([s for s in samples if '商品説明' in s['input']])}"
+    )
     print(f"Output: {output_path}")
 
 
