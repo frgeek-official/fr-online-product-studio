@@ -1,6 +1,8 @@
 """トーンパラメータ予測モデルの学習スクリプト."""
 
+import json
 import pickle
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 import numpy as np
@@ -67,7 +69,54 @@ def load_image_pair(
     if ideal.mode == "RGBA":
         ideal = ideal.convert("RGB")
 
+    # サイズを揃える（小さい方に合わせる）
+    if original.size != ideal.size:
+        min_width = min(original.width, ideal.width)
+        min_height = min(original.height, ideal.height)
+        target_size = (min_width, min_height)
+        original = original.resize(target_size, Image.Resampling.LANCZOS)
+        ideal = ideal.resize(target_size, Image.Resampling.LANCZOS)
+
     return np.array(original), np.array(ideal)
+
+
+def process_single_image(
+    original_path: Path, ideal_dir: Path
+) -> tuple[np.ndarray, np.ndarray, str] | None:
+    """1つの画像ペアを処理する（並列処理用）.
+
+    Args:
+        original_path: 元画像のパス
+        ideal_dir: 理想画像のディレクトリ
+
+    Returns:
+        (特徴量配列, パラメータ配列, ファイル名) または None
+    """
+    # ideal画像を探す
+    ideal_path = None
+    for f in ideal_dir.iterdir():
+        if f.is_file() and f.stem == original_path.stem:
+            ideal_path = f
+            break
+    if ideal_path is None:
+        return None
+
+    # 画像ペアを読み込む
+    pair = load_image_pair(original_path, ideal_path)
+    if pair is None:
+        return None
+
+    original_arr, ideal_arr = pair
+
+    # トーンパラメータ推定
+    b, c, gamma = estimate_tone_parameters(original_arr, ideal_arr)
+
+    # 特徴量抽出
+    feature_extractor = NumpyFeatureExtractor()
+    original_image = Image.open(original_path)
+    features = feature_extractor.extract(original_image)
+
+    return features.to_array(), np.array([b, c, gamma]), original_path.name
 
 
 def main() -> None:
@@ -83,37 +132,79 @@ def main() -> None:
         print(f"  Expected: {ideal_dir}")
         return
 
-    original_files = sorted(original_dir.glob("*.png"))
+    original_files = sorted([f for f in original_dir.iterdir() if f.is_file()])
     print(f"Found {len(original_files)} training images")
 
     if len(original_files) == 0:
         print("Error: No training images found")
         return
 
-    feature_extractor = NumpyFeatureExtractor()
     features_list: list[np.ndarray] = []
     params_list: list[np.ndarray] = []
+    names_list: list[str] = []
 
-    for i, original_path in enumerate(original_files):
-        ideal_path = ideal_dir / original_path.name
+    # キャッシュファイルのパス
+    cache_path = model_dir / "tone_training_data.json"
 
-        pair = load_image_pair(original_path, ideal_path)
-        if pair is None:
-            print(f"  Skipping {original_path.name}: ideal not found")
-            continue
+    if cache_path.exists():
+        # キャッシュから読み込み
+        print(f"Loading cached data from {cache_path}...")
+        with open(cache_path, encoding="utf-8") as f:
+            data = json.load(f)
+        for sample in data["samples"]:
+            features_list.append(np.array(sample["features"]))
+            params_list.append(np.array([
+                sample["params"]["brightness"],
+                sample["params"]["contrast"],
+                sample["params"]["gamma"]
+            ]))
+            names_list.append(sample["name"])
+        print(f"Loaded {len(features_list)} samples from cache")
+    else:
+        # 並列処理でパラメータ推定
+        total = len(original_files)
+        print(f"Processing {total} images in parallel...")
+        with ThreadPoolExecutor(max_workers=10) as executor:
+            futures = {
+                executor.submit(process_single_image, path, ideal_dir): path
+                for path in original_files
+            }
 
-        original_arr, ideal_arr = pair
+            processed = 0
+            for future in as_completed(futures):
+                processed += 1
+                remaining = total - processed
+                result = future.result()
+                if result is not None:
+                    features, params, name = result
+                    features_list.append(features)
+                    params_list.append(params)
+                    names_list.append(name)
+                    print(
+                        f"  [{processed}/{total}] {name}: b={params[0]:.2f}, c={params[1]:.2f}, γ={params[2]:.2f} (残り{remaining})"
+                    )
+                else:
+                    path = futures[future]
+                    print(f"  [{processed}/{total}] {path.name}: skipped (残り{remaining})")
 
-        print(f"  [{i+1}/{len(original_files)}] Processing {original_path.name}...")
-
-        b, c, gamma = estimate_tone_parameters(original_arr, ideal_arr)
-        print(f"    Parameters: b={b:.2f}, c={c:.2f}, γ={gamma:.2f}")
-
-        original_image = Image.open(original_path)
-        features = feature_extractor.extract(original_image)
-
-        features_list.append(features.to_array())
-        params_list.append(np.array([b, c, gamma]))
+        # キャッシュに保存
+        cache_data = {
+            "samples": [
+                {
+                    "name": name,
+                    "features": features.tolist(),
+                    "params": {
+                        "brightness": float(params[0]),
+                        "contrast": float(params[1]),
+                        "gamma": float(params[2])
+                    }
+                }
+                for features, params, name in zip(features_list, params_list, names_list)
+            ]
+        }
+        with open(cache_path, "w", encoding="utf-8") as f:
+            json.dump(cache_data, f, ensure_ascii=False, indent=2)
+        print(f"Saved {len(features_list)} samples to {cache_path}")
 
     if len(features_list) < 10:
         print(f"Error: Not enough training data ({len(features_list)} pairs)")

@@ -45,6 +45,20 @@ class BiRefNetRemover:
             transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
         ])
 
+    def switch_device(self, device: str) -> None:
+        """デバイスを切り替える.
+
+        Args:
+            device: 切り替え先のデバイス（"cuda", "mps", "cpu"）
+        """
+        self._device = device
+        self._model.to(device)
+
+    @property
+    def device(self) -> str:
+        """現在のデバイスを取得."""
+        return self._device
+
     def remove_background(self, image: Image.Image) -> Image.Image:
         """背景を除去する.
 
