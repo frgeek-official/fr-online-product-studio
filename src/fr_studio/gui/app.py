@@ -1,0 +1,182 @@
+"""メインアプリケーションウィンドウ.
+
+QMainWindowを継承し、ヘッダーと画面スタックを管理する。
+"""
+
+from pathlib import Path
+
+from PySide6.QtWidgets import QMainWindow, QMessageBox, QStackedWidget, QVBoxLayout, QWidget
+
+from .components.header import AppHeader
+from .db.database import initialize_database
+from .di.container import register_image_processing_services
+from .screens.create_project import CreateProjectScreen
+from .screens.dashboard import DashboardScreen
+from .screens.loading import LoadingScreen
+from .services.navigation import NavigationService, Screen
+from .workers.project_creation import ProjectCreationWorker
+
+
+class FrgeekStudioApp(QMainWindow):
+    """メインアプリケーションウィンドウ.
+
+    アプリケーションの主要なUIコンテナ。
+    ヘッダー、画面スタック、ナビゲーションを管理する。
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.setWindowTitle("Frgeek Studio")
+        self.setMinimumSize(1200, 800)
+
+        # ワーカー参照保持用
+        self._current_worker: ProjectCreationWorker | None = None
+
+        # データベース初期化
+        initialize_database()
+
+        # 画像処理サービスを登録（即座に初期化）
+        register_image_processing_services()
+
+        # UI構築
+        self._setup_ui()
+
+        # 初期画面に遷移
+        self._nav.navigate_to(Screen.DASHBOARD, clear_history=True)
+
+    def _setup_ui(self) -> None:
+        """UIを構築."""
+        # 中央ウィジェット
+        central = QWidget()
+        self.setCentralWidget(central)
+
+        layout = QVBoxLayout(central)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        # ヘッダー
+        self._header = AppHeader()
+        self._header.back_clicked.connect(self._on_back_clicked)
+        layout.addWidget(self._header)
+
+        # 画面スタック
+        self._stack = QStackedWidget()
+        layout.addWidget(self._stack, 1)
+
+        # ナビゲーションサービス
+        self._nav = NavigationService(self._stack, self)
+        self._nav.screen_changed.connect(self._on_screen_changed)
+
+        # 画面を登録
+        self._register_screens()
+
+        # スタイルシートを適用
+        self._load_stylesheet()
+
+    def _register_screens(self) -> None:
+        """画面を登録."""
+        # ダッシュボード
+        dashboard = DashboardScreen()
+        dashboard.create_project_clicked.connect(self._on_create_project)
+        dashboard.project_selected.connect(self._on_project_selected)
+        self._nav.register_screen(Screen.DASHBOARD, dashboard)
+
+        # プロジェクト作成
+        create_project = CreateProjectScreen()
+        create_project.project_created.connect(self._on_project_creation_requested)
+        create_project.cancelled.connect(self._on_create_project_cancelled)
+        self._nav.register_screen(Screen.CREATE_PROJECT, create_project)
+
+        # ローディング
+        loading = LoadingScreen()
+        self._nav.register_screen(Screen.LOADING, loading)
+
+        # TODO: Phase 3以降で他の画面を追加
+
+    def _load_stylesheet(self) -> None:
+        """スタイルシートを読み込み."""
+        style_path = Path(__file__).parent / "styles" / "styles.qss"
+        if style_path.exists():
+            self.setStyleSheet(style_path.read_text())
+
+    def _on_screen_changed(self, screen: Screen) -> None:
+        """画面変更時の処理."""
+        self._header.show_back_button(self._nav.can_go_back())
+
+        # 画面に応じてタイトルを更新
+        titles = {
+            Screen.DASHBOARD: "Frgeek Studio",
+            Screen.CREATE_PROJECT: "新規プロジェクト",
+            Screen.LOADING: "処理中...",
+            Screen.PROJECT_DETAIL: "プロジェクト詳細",
+            Screen.IMAGE_EDITOR: "画像編集",
+        }
+        self._header.set_title(titles.get(screen, "Frgeek Studio"))
+
+    def _on_back_clicked(self) -> None:
+        """戻るボタンクリック時の処理."""
+        self._nav.go_back()
+
+    def _on_create_project(self) -> None:
+        """新規プロジェクト作成ボタンクリック時の処理."""
+        self._nav.navigate_to(Screen.CREATE_PROJECT)
+
+    def _on_create_project_cancelled(self) -> None:
+        """プロジェクト作成キャンセル時の処理."""
+        self._nav.go_back()
+
+    def _on_project_creation_requested(
+        self, name: str, product_ids: list, exclude_ids: list
+    ) -> None:
+        """プロジェクト作成リクエスト時の処理."""
+        # ローディング画面に遷移
+        loading_screen = self._nav.get_screen(Screen.LOADING)
+        if loading_screen:
+            loading_screen.reset()
+            loading_screen.set_title("プロジェクト作成中...")
+            loading_screen.set_subtitle(f"{name} を作成しています")
+
+        self._nav.navigate_to(Screen.LOADING)
+
+        # ワーカーを作成して実行
+        self._current_worker = ProjectCreationWorker(
+            name=name,
+            product_ids=product_ids,
+            exclude_ids=exclude_ids,
+        )
+
+        # シグナル接続
+        self._current_worker.progress.connect(self._on_worker_progress)
+        self._current_worker.finished.connect(self._on_worker_finished)
+        self._current_worker.error.connect(self._on_worker_error)
+
+        # ワーカー開始
+        self._current_worker.start()
+
+    def _on_worker_progress(self, message: str, percent: int) -> None:
+        """ワーカー進捗更新時の処理."""
+        loading_screen = self._nav.get_screen(Screen.LOADING)
+        if loading_screen:
+            loading_screen.set_progress(message, percent)
+
+    def _on_worker_finished(self, project_id: int) -> None:
+        """ワーカー完了時の処理."""
+        self._current_worker = None
+        # ダッシュボードに戻る（プロジェクト詳細はPhase 4で実装）
+        self._nav.navigate_to(Screen.DASHBOARD, clear_history=True)
+
+    def _on_worker_error(self, error_message: str) -> None:
+        """ワーカーエラー時の処理."""
+        self._current_worker = None
+        QMessageBox.critical(self, "エラー", error_message)
+        self._nav.navigate_to(Screen.DASHBOARD, clear_history=True)
+
+    def _on_project_selected(self, project_id: int) -> None:
+        """プロジェクト選択時の処理."""
+        # TODO: Phase 4で ProjectDetailScreen に遷移
+        print(f"Project selected: {project_id}")
+
+    @property
+    def navigation(self) -> NavigationService:
+        """ナビゲーションサービスを取得."""
+        return self._nav

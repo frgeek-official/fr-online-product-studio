@@ -1,0 +1,98 @@
+/* Frgeek Studio Global Styles */
+
+/* Base */
+QWidget {
+    background-color: #0f1113;
+    color: #ffffff;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+/* Scroll Area */
+QScrollArea {
+    border: none;
+    background: transparent;
+}
+
+QScrollBar:vertical {
+    background: #1a1a1a;
+    width: 8px;
+    border-radius: 4px;
+}
+
+QScrollBar::handle:vertical {
+    background: #333;
+    border-radius: 4px;
+    min-height: 20px;
+}
+
+QScrollBar::handle:vertical:hover {
+    background: #444;
+}
+
+QScrollBar::add-line:vertical,
+QScrollBar::sub-line:vertical {
+    height: 0;
+}
+
+/* Buttons */
+QPushButton {
+    background: #00c2a8;
+    color: #000;
+    border: none;
+    border-radius: 4px;
+    padding: 8px 16px;
+    font-weight: bold;
+}
+
+QPushButton:hover {
+    background: #00d4b8;
+}
+
+QPushButton:pressed {
+    background: #00a88e;
+}
+
+QPushButton:disabled {
+    background: #333;
+    color: #666;
+}
+
+/* Line Edit */
+QLineEdit {
+    background: #1a1a1a;
+    border: 1px solid #333;
+    border-radius: 4px;
+    padding: 8px 12px;
+    color: #fff;
+}
+
+QLineEdit:focus {
+    border-color: #00c2a8;
+}
+
+/* Labels */
+QLabel {
+    background: transparent;
+}
+
+/* Progress Bar */
+QProgressBar {
+    border: none;
+    border-radius: 4px;
+    background: #333;
+    height: 8px;
+    text-align: center;
+}
+
+QProgressBar::chunk {
+    background: #00c2a8;
+    border-radius: 4px;
+}
+
+/* Text Edit */
+QTextEdit {
+    background: #1a1a1a;
+    border: 1px solid #333;
+    border-radius: 4px;
+    color: #ccc;
+}

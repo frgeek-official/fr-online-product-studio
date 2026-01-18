@@ -1,0 +1,1 @@
+"""Frgeek Studio GUI package."""
