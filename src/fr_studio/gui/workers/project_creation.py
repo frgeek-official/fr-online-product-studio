@@ -9,12 +9,6 @@ from pathlib import Path
 from PIL import Image, ImageOps
 from PySide6.QtCore import Signal
 
-from ..db.database import get_projects_dir
-from ..db.models import ProductImageModel, ProductModel, ProjectModel
-from ..di.container import inject
-from ..services.image_downloader import LocalImageDownloader
-from .base import BaseWorker
-
 # infrastructure層からimport
 from fr_studio.application.image_view_classifier import ViewType
 from fr_studio.infrastructure.birefnet_remover import BiRefNetRemover
@@ -22,6 +16,12 @@ from fr_studio.infrastructure.pillow_centerer import PillowCenterer
 from fr_studio.infrastructure.pillow_edge_refiner import PillowEdgeRefiner
 from fr_studio.infrastructure.pillow_shadow_adder import PillowShadowAdder
 from fr_studio.infrastructure.qwen_vl_classifier import QwenVLClassifier
+
+from ..db.database import get_projects_dir
+from ..db.models import ProductImageModel, ProductModel, ProjectModel
+from ..di.container import inject
+from ..services.image_downloader import GoogleDriveDownloader
+from .base import BaseWorker
 
 
 class ProjectCreationWorker(BaseWorker):
@@ -54,7 +54,7 @@ class ProjectCreationWorker(BaseWorker):
         self.exclude_ids = set(exclude_ids)
 
         # 画像処理サービス（DIContainerから取得）
-        self._downloader = LocalImageDownloader()
+        self._downloader = GoogleDriveDownloader()
         self._classifier = inject(QwenVLClassifier)
         self._remover = inject(BiRefNetRemover)
         self._centerer = inject(PillowCenterer)
@@ -232,8 +232,12 @@ class ProjectCreationWorker(BaseWorker):
             file_type=file_type,
             original_filepath=str(original_path),
             filepath=str(filepath),
-            background_removed_filepath=str(background_removed_path) if background_removed_path else None,
+            background_removed_filepath=(
+                str(background_removed_path) if background_removed_path else None
+            ),
             centered_filepath=str(centered_path) if centered_path else None,
             product_mask_filepath=str(product_mask_path) if product_mask_path else None,
-            background_mask_filepath=str(background_mask_path) if background_mask_path else None,
+            background_mask_filepath=(
+                str(background_mask_path) if background_mask_path else None
+            ),
         )

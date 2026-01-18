@@ -77,22 +77,42 @@ class LocalImageDownloader:
 
 
 class GoogleDriveDownloader:
-    """Google Drive APIによる画像ダウンロード（未実装）.
-    
-    TODO: Phase 6以降で実装予定
+    """Google Drive APIによる画像ダウンロード.
+
+    商品IDに対応するフォルダから IMG_ で始まる画像をダウンロードする。
+    初回実行時はブラウザでGoogle認証が必要。
     """
 
     def __init__(self) -> None:
-        pass
+        """初期化.
+
+        Google Drive API クライアントを遅延初期化する。
+        """
+        self._client = None
+
+    def _get_client(self):
+        """Google Drive クライアントを取得（遅延初期化）."""
+        if self._client is None:
+            from fr_studio.infrastructure.google_drive_client import GoogleDriveClient
+            self._client = GoogleDriveClient()
+        return self._client
 
     def download_images(self, item_id: int, dest_dir: Path) -> list[Path]:
         """商品画像をGoogle Driveからダウンロードする.
-        
+
+        商品ID（SKU）に対応するフォルダを検索し、
+        IMG_ で始まる画像ファイルをすべてダウンロードする。
+
         Args:
-            item_id: 商品ID
-            dest_dir: 保存先ディレクトリ
-            
+            item_id: 商品ID（SKU）
+            dest_dir: 保存先ディレクトリ（originals/サブディレクトリに保存）
+
         Returns:
             ダウンロードした画像ファイルパスのリスト
         """
-        raise NotImplementedError("Google Drive download not implemented yet")
+        originals_dir = dest_dir / "originals"
+        originals_dir.mkdir(parents=True, exist_ok=True)
+
+        client = self._get_client()
+        downloaded = client.download_images_by_item_id(item_id, originals_dir)
+        return downloaded
