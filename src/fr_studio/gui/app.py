@@ -12,6 +12,7 @@ from .db.database import initialize_database
 from .di.container import register_image_processing_services
 from .screens.create_project import CreateProjectScreen
 from .screens.dashboard import DashboardScreen
+from .screens.image_editor import ImageEditorScreen
 from .screens.loading import LoadingScreen
 from .screens.project_detail import ProjectDetailScreen
 from .services.navigation import NavigationService, Screen
@@ -98,7 +99,10 @@ class FrgeekStudioApp(QMainWindow):
         project_detail.edit_clicked.connect(self._on_image_edit_requested)
         self._nav.register_screen(Screen.PROJECT_DETAIL, project_detail)
 
-        # TODO: Phase 5で ImageEditorScreen を追加
+        # 画像編集
+        image_editor = ImageEditorScreen()
+        image_editor.back_requested.connect(self._on_image_editor_back)
+        self._nav.register_screen(Screen.IMAGE_EDITOR, image_editor)
 
     def _load_stylesheet(self) -> None:
         """スタイルシートを読み込み."""
@@ -199,8 +203,11 @@ class FrgeekStudioApp(QMainWindow):
 
     def _on_image_edit_requested(self, image_id: int) -> None:
         """画像編集リクエスト時の処理."""
-        # TODO: Phase 5で IMAGE_EDITOR に遷移
-        print(f"Image edit requested: {image_id}")
+        self._nav.navigate_to(Screen.IMAGE_EDITOR, params={"image_id": image_id})
+
+    def _on_image_editor_back(self) -> None:
+        """画像編集画面から戻る時の処理."""
+        self._nav.go_back()
 
     @property
     def navigation(self) -> NavigationService:

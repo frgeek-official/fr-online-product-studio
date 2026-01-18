@@ -135,6 +135,7 @@ def register_image_processing_services() -> None:
     即座にインスタンスを生成してDIContainerに登録する。
     """
     from fr_studio.infrastructure.birefnet_remover import BiRefNetRemover
+    from fr_studio.infrastructure.numpy_tone_adjuster import NumpyToneAdjuster
     from fr_studio.infrastructure.pillow_centerer import PillowCenterer
     from fr_studio.infrastructure.pillow_edge_refiner import PillowEdgeRefiner
     from fr_studio.infrastructure.pillow_shadow_adder import PillowShadowAdder
@@ -148,3 +149,4 @@ def register_image_processing_services() -> None:
     container.register_instance(PillowCenterer, PillowCenterer())
     container.register_instance(PillowEdgeRefiner, PillowEdgeRefiner())
     container.register_instance(PillowShadowAdder, PillowShadowAdder())
+    container.register_instance(NumpyToneAdjuster, NumpyToneAdjuster())
