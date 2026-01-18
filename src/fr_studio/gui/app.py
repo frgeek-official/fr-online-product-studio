@@ -13,6 +13,7 @@ from .di.container import register_image_processing_services
 from .screens.create_project import CreateProjectScreen
 from .screens.dashboard import DashboardScreen
 from .screens.loading import LoadingScreen
+from .screens.project_detail import ProjectDetailScreen
 from .services.navigation import NavigationService, Screen
 from .workers.project_creation import ProjectCreationWorker
 
@@ -91,7 +92,13 @@ class FrgeekStudioApp(QMainWindow):
         loading = LoadingScreen()
         self._nav.register_screen(Screen.LOADING, loading)
 
-        # TODO: Phase 3以降で他の画面を追加
+        # プロジェクト詳細
+        project_detail = ProjectDetailScreen()
+        project_detail.back_requested.connect(self._on_project_detail_back)
+        project_detail.edit_clicked.connect(self._on_image_edit_requested)
+        self._nav.register_screen(Screen.PROJECT_DETAIL, project_detail)
+
+        # TODO: Phase 5で ImageEditorScreen を追加
 
     def _load_stylesheet(self) -> None:
         """スタイルシートを読み込み."""
@@ -138,11 +145,15 @@ class FrgeekStudioApp(QMainWindow):
 
         self._nav.navigate_to(Screen.LOADING)
 
+        # 文字列IDを整数に変換
+        int_product_ids = [int(pid) for pid in product_ids if pid.isdigit()]
+        int_exclude_ids = [int(eid) for eid in exclude_ids if eid.isdigit()]
+
         # ワーカーを作成して実行
         self._current_worker = ProjectCreationWorker(
             name=name,
-            product_ids=product_ids,
-            exclude_ids=exclude_ids,
+            product_ids=int_product_ids,
+            exclude_ids=int_exclude_ids,
         )
 
         # シグナル接続
@@ -162,8 +173,12 @@ class FrgeekStudioApp(QMainWindow):
     def _on_worker_finished(self, project_id: int) -> None:
         """ワーカー完了時の処理."""
         self._current_worker = None
-        # ダッシュボードに戻る（プロジェクト詳細はPhase 4で実装）
-        self._nav.navigate_to(Screen.DASHBOARD, clear_history=True)
+        # プロジェクト詳細画面に遷移
+        self._nav.navigate_to(
+            Screen.PROJECT_DETAIL,
+            params={"project_id": project_id},
+            clear_history=True,
+        )
 
     def _on_worker_error(self, error_message: str) -> None:
         """ワーカーエラー時の処理."""
@@ -173,8 +188,19 @@ class FrgeekStudioApp(QMainWindow):
 
     def _on_project_selected(self, project_id: int) -> None:
         """プロジェクト選択時の処理."""
-        # TODO: Phase 4で ProjectDetailScreen に遷移
-        print(f"Project selected: {project_id}")
+        self._nav.navigate_to(
+            Screen.PROJECT_DETAIL,
+            params={"project_id": project_id},
+        )
+
+    def _on_project_detail_back(self) -> None:
+        """プロジェクト詳細画面から戻る時の処理."""
+        self._nav.navigate_to(Screen.DASHBOARD, clear_history=True)
+
+    def _on_image_edit_requested(self, image_id: int) -> None:
+        """画像編集リクエスト時の処理."""
+        # TODO: Phase 5で IMAGE_EDITOR に遷移
+        print(f"Image edit requested: {image_id}")
 
     @property
     def navigation(self) -> NavigationService:

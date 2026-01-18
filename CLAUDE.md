@@ -6,6 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Frgeek古着オンラインストア向けの画像加工・商品説明生成ツール。商品画像の背景除去・加工と、商品情報からのタイトル・説明文生成を行う。PySide6によるMacネイティブGUIアプリを提供。
 
+**Python 3.13が必要**
+
 ## コマンド
 
 ```bash
@@ -85,6 +87,13 @@ gui/
 - `NavigationService` でQStackedWidget画面遷移
 
 **データ保存先:** `~/.fr_studio/`（DB: `studio.db`, プロジェクト画像: `projects/`）
+
+**GUI画面遷移:**
+- Dashboard → CreateProject → Loading → ProjectDetail
+- Dashboard → ProjectDetail (選択時)
+- ProjectDetail → ImageEditor (Phase 5で実装予定)
+
+**テスト画像:** `~/.fr_studio/test_images/{item_id}/` にローカル画像を配置するとGoogle Drive APIなしでテスト可能
 
 ## scripts/
 

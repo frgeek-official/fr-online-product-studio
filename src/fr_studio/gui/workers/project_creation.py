@@ -108,13 +108,20 @@ class ProjectCreationWorker(BaseWorker):
 
     def _create_project(self) -> ProjectModel:
         """プロジェクトを作成する."""
-        project_dir = get_projects_dir() / self.name
-        project_dir.mkdir(parents=True, exist_ok=True)
-
+        # 1. まずDBにレコード作成（IDが生成される）
         project = ProjectModel.create(
             name=self.name,
-            project_dir_path=str(project_dir),
+            project_dir_path="",  # 一時的に空
         )
+
+        # 2. IDを使ってディレクトリ作成（重複を避けるため）
+        project_dir = get_projects_dir() / str(project.id)
+        project_dir.mkdir(parents=True, exist_ok=True)
+
+        # 3. パスを更新
+        project.project_dir_path = str(project_dir)
+        project.save()
+
         return project
 
     def _process_product(self, project: ProjectModel, item_id: int) -> None:
