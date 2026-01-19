@@ -21,7 +21,7 @@ ACCOUNT_NAME = "default"
 
 # OAuth スコープ
 SCOPES = [
-    "https://www.googleapis.com/auth/drive.readonly",
+    "https://www.googleapis.com/auth/drive",  # ファイルのアップロード・ダウンロード
     "https://www.googleapis.com/auth/spreadsheets.readonly",
 ]
 

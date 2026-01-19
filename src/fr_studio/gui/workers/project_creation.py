@@ -150,18 +150,22 @@ class ProjectCreationWorker(BaseWorker):
         if not image_paths:
             return
 
-        # 各画像を処理
-        for img_path in image_paths:
+        # 各画像を処理（ファイル名昇順でsort値を設定）
+        sorted_paths = sorted(image_paths, key=lambda p: p.name)
+        for sort_index, img_path in enumerate(sorted_paths, start=1):
             if self.check_cancelled():
                 return
-            self._process_image(product, img_path)
+            self._process_image(product, img_path, sort_index)
 
-    def _process_image(self, product: ProductModel, original_path: Path) -> None:
+    def _process_image(
+        self, product: ProductModel, original_path: Path, sort_index: int
+    ) -> None:
         """画像を処理する.
 
         Args:
             product: 商品モデル
             original_path: 元画像パス
+            sort_index: 並び順（1から開始）
         """
         # 画像読み込み
         image = Image.open(original_path)
@@ -230,6 +234,7 @@ class ProjectCreationWorker(BaseWorker):
             is_background_removed=is_background_removed,
             is_white_bg=False,  # TODO: 背景分類で判定
             file_type=file_type,
+            sort=sort_index,
             original_filepath=str(original_path),
             filepath=str(filepath),
             background_removed_filepath=(

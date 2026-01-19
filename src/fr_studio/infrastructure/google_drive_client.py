@@ -1,7 +1,7 @@
 """Google Drive API クライアント.
 
-商品画像のダウンロードを行う。
-商品ID（SKU）に対応するフォルダから画像ファイルを取得する。
+商品画像のダウンロード・アップロードを行う。
+商品ID（SKU）に対応するフォルダから画像ファイルを取得・保存する。
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ from .google_auth import get_credentials
 class GoogleDriveClient:
     """Google Drive API クライアント.
 
-    商品画像のダウンロードを行う。
+    商品画像のダウンロード・アップロードを行う。
     """
 
     def __init__(self) -> None:
@@ -137,3 +137,89 @@ class GoogleDriveClient:
                 _, done = downloader.next_chunk()
 
         return dest_path
+
+    def create_or_get_folder(self, name: str, parent_id: str | None = None) -> str:
+        """フォルダを作成または既存のものを取得.
+
+        Args:
+            name: フォルダ名
+            parent_id: 親フォルダID（省略時はルート）
+
+        Returns:
+            フォルダID
+        """
+        # 既存フォルダを検索
+        query = (
+            f"name='{name}' and "
+            "mimeType='application/vnd.google-apps.folder' and "
+            "trashed=false"
+        )
+        if parent_id:
+            query += f" and '{parent_id}' in parents"
+
+        results = (
+            self._service.files()
+            .list(q=query, fields="files(id, name)")
+            .execute()
+        )
+        files = results.get("files", [])
+
+        if files:
+            return files[0]["id"]
+
+        # フォルダを新規作成
+        file_metadata: dict[str, Any] = {
+            "name": name,
+            "mimeType": "application/vnd.google-apps.folder",
+        }
+        if parent_id:
+            file_metadata["parents"] = [parent_id]
+
+        folder = (
+            self._service.files()
+            .create(body=file_metadata, fields="id")
+            .execute()
+        )
+        return folder["id"]
+
+    def upload_file(
+        self, file_path: Path, folder_id: str, file_name: str | None = None
+    ) -> str:
+        """ファイルをアップロード.
+
+        Args:
+            file_path: アップロードするファイルのパス
+            folder_id: アップロード先フォルダID
+            file_name: ファイル名（省略時は元のファイル名）
+
+        Returns:
+            アップロードしたファイルのID
+        """
+        from googleapiclient.http import MediaFileUpload
+
+        name = file_name or file_path.name
+
+        # MIMEタイプを推定
+        suffix = file_path.suffix.lower()
+        mime_types = {
+            ".jpg": "image/jpeg",
+            ".jpeg": "image/jpeg",
+            ".png": "image/png",
+            ".webp": "image/webp",
+            ".gif": "image/gif",
+        }
+        mime_type = mime_types.get(suffix, "application/octet-stream")
+
+        file_metadata = {
+            "name": name,
+            "parents": [folder_id],
+        }
+
+        media = MediaFileUpload(str(file_path), mimetype=mime_type, resumable=True)
+
+        file = (
+            self._service.files()
+            .create(body=file_metadata, media_body=media, fields="id")
+            .execute()
+        )
+        return file["id"]

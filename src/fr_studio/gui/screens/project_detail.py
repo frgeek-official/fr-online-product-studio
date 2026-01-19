@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..components.cards.image_card import AddMoreAssetsCard, ImageCard
+from ..components.dialogs import UploadDialog
 from ..components.product_list_item import ProductListItem
 from ..db.models import ProductImageModel, ProductModel, ProjectModel
 from .base import BaseScreen
@@ -221,6 +222,25 @@ class ProjectDetailScreen(BaseScreen):
         edit_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         edit_btn.clicked.connect(self._on_edit_project_clicked)
         layout.addWidget(edit_btn)
+
+        # アップロードボタン
+        upload_btn = QPushButton("ドライブにアップロード")
+        upload_btn.setStyleSheet("""
+            QPushButton {
+                background: #24242e;
+                color: #fff;
+                border: none;
+                border-radius: 8px;
+                font-size: 13px;
+                padding: 10px 20px;
+            }
+            QPushButton:hover {
+                background: #34343e;
+            }
+        """)
+        upload_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        upload_btn.clicked.connect(self._on_upload_clicked)
+        layout.addWidget(upload_btn)
 
         # Add Assets ボタン
         add_assets_btn = QPushButton("+ Add Assets")
@@ -474,6 +494,19 @@ class ProjectDetailScreen(BaseScreen):
         """アセット追加クリック."""
         # TODO: Phase 6 で実装
         QMessageBox.information(self, "Info", "アセット追加機能は後のフェーズで実装予定です")
+
+    def _on_upload_clicked(self) -> None:
+        """アップロードボタンクリック.
+
+        プロジェクトの全商品画像をGoogle Driveにアップロードする。
+        """
+        if not self._project:
+            QMessageBox.warning(self, "警告", "プロジェクトが読み込まれていません")
+            return
+
+        dialog = UploadDialog(self)
+        dialog.start_upload(self._project)
+        dialog.exec()
 
     def _on_open_folder_clicked(self) -> None:
         """フォルダを開くクリック."""
