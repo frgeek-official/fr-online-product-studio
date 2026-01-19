@@ -76,8 +76,8 @@ class ImageCard(QFrame):
     delete_clicked = Signal(int)
     selection_changed = Signal(int, bool)
 
-    CARD_WIDTH = 180
-    CARD_HEIGHT = 260  # 4:5比率のサムネイル(180x225) + 情報エリア
+    CARD_WIDTH = 220
+    CARD_HEIGHT = 280  # サムネイル(220x180) + 情報エリア
 
     def __init__(
         self,
@@ -164,16 +164,16 @@ class ImageCard(QFrame):
         overlay_layout.setSpacing(12)
 
         # 編集ボタン
-        self._edit_btn = QPushButton("Edit")
+        self._edit_btn = QPushButton("編集")
         self._edit_btn.setFixedSize(60, 32)
         self._edit_btn.setStyleSheet("""
             QPushButton {
                 background: #00c2a8;
                 color: #000;
                 border: none;
-                border-radius: 6px;
-                font-weight: bold;
+                border-radius: 4px;
                 font-size: 12px;
+                font-weight: bold;
             }
             QPushButton:hover {
                 background: #00d4b8;
@@ -184,16 +184,16 @@ class ImageCard(QFrame):
         overlay_layout.addWidget(self._edit_btn)
 
         # 削除ボタン
-        self._delete_btn = QPushButton("Delete")
+        self._delete_btn = QPushButton("削除")
         self._delete_btn.setFixedSize(60, 32)
         self._delete_btn.setStyleSheet("""
             QPushButton {
                 background: #ff4444;
                 color: #fff;
                 border: none;
-                border-radius: 6px;
-                font-weight: bold;
+                border-radius: 4px;
                 font-size: 12px;
+                font-weight: bold;
             }
             QPushButton:hover {
                 background: #ff5555;

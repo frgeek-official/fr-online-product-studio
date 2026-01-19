@@ -112,17 +112,8 @@ class FrgeekStudioApp(QMainWindow):
 
     def _on_screen_changed(self, screen: Screen) -> None:
         """画面変更時の処理."""
-        self._header.show_back_button(self._nav.can_go_back())
-
-        # 画面に応じてタイトルを更新
-        titles = {
-            Screen.DASHBOARD: "Frgeek Studio",
-            Screen.CREATE_PROJECT: "新規プロジェクト",
-            Screen.LOADING: "処理中...",
-            Screen.PROJECT_DETAIL: "プロジェクト詳細",
-            Screen.IMAGE_EDITOR: "画像編集",
-        }
-        self._header.set_title(titles.get(screen, "Frgeek Studio"))
+        # ヘッダーは全画面共通（タイトル固定、戻るボタンなし）
+        pass
 
     def _on_back_clicked(self) -> None:
         """戻るボタンクリック時の処理."""

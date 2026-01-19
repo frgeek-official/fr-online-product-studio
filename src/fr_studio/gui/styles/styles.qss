@@ -60,19 +60,29 @@ QPushButton:disabled {
 /* Line Edit */
 QLineEdit {
     background: #1a1a1a;
-    border: 1px solid #333;
+    border: none;
     border-radius: 4px;
     padding: 8px 12px;
     color: #fff;
 }
 
 QLineEdit:focus {
-    border-color: #00c2a8;
+    border: none;
+}
+
+/* Spin Box */
+QSpinBox {
+    background: #1a1a1a;
+    border: none;
+    border-radius: 4px;
+    padding: 8px 12px;
+    color: #fff;
 }
 
 /* Labels */
 QLabel {
     background: transparent;
+    border: none;
 }
 
 /* Progress Bar */
@@ -92,7 +102,7 @@ QProgressBar::chunk {
 /* Text Edit */
 QTextEdit {
     background: #1a1a1a;
-    border: 1px solid #333;
+    border: none;
     border-radius: 4px;
     color: #ccc;
 }

@@ -36,6 +36,8 @@ class DashboardScreen(BaseScreen):
         super().__init__(parent)
         self._current_page = 0
         self._search_text = ""
+        self._scroll_area: QScrollArea | None = None
+        self._current_columns = 4
         self._setup_ui()
 
     def _setup_ui(self) -> None:
@@ -54,7 +56,7 @@ class DashboardScreen(BaseScreen):
         title_layout.addWidget(title)
 
         # 統計情報
-        self._stats_label = QLabel("0 Projects | 0 Assets")
+        self._stats_label = QLabel("0 プロジェクト | 0 アセット")
         self._stats_label.setStyleSheet("color: #888; font-size: 14px;")
         title_layout.addWidget(self._stats_label)
 
@@ -88,10 +90,10 @@ class DashboardScreen(BaseScreen):
         layout.addWidget(search_container)
 
         # スクロールエリア
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.Shape.NoFrame)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._scroll_area = QScrollArea()
+        self._scroll_area.setWidgetResizable(True)
+        self._scroll_area.setFrameShape(QFrame.Shape.NoFrame)
+        self._scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
         # グリッドコンテナ
         self._grid_container = QWidget()
@@ -99,8 +101,8 @@ class DashboardScreen(BaseScreen):
         self._grid_layout.setSpacing(20)
         self._grid_layout.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
 
-        scroll.setWidget(self._grid_container)
-        layout.addWidget(scroll, 1)
+        self._scroll_area.setWidget(self._grid_container)
+        layout.addWidget(self._scroll_area, 1)
 
         # ページネーション
         pagination = QWidget()
@@ -108,7 +110,7 @@ class DashboardScreen(BaseScreen):
         pagination_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
         pagination_layout.setSpacing(12)
 
-        self._page_info = QLabel("Showing 0 of 0 projects")
+        self._page_info = QLabel("0 件中 0 件を表示")
         self._page_info.setStyleSheet("color: #888; font-size: 14px;")
         self._page_info.setAlignment(Qt.AlignmentFlag.AlignCenter)
         pagination_layout.addWidget(self._page_info)
@@ -177,7 +179,7 @@ class DashboardScreen(BaseScreen):
         # 総アセット数を計算
         total_assets = ProductImageModel.select().count()
 
-        self._stats_label.setText(f"{total_projects} Projects | {total_assets} Assets")
+        self._stats_label.setText(f"{total_projects} プロジェクト | {total_assets} アセット")
 
         # ページネーション計算
         start_idx = 0 if not append else (self._current_page * self.ITEMS_PER_PAGE)
@@ -185,7 +187,7 @@ class DashboardScreen(BaseScreen):
         page_projects = projects[start_idx:end_idx]
 
         # 新規作成カードを追加（最初のページのみ）
-        col_count = 4
+        col_count = self._calculate_columns()
         offset = 0
         
         if not append and self._current_page == 0:
@@ -223,7 +225,7 @@ class DashboardScreen(BaseScreen):
         shown = min(end_idx, total_projects)
         if not append:
             shown = min(end_idx, total_projects)
-        self._page_info.setText(f"Showing {shown} of {total_projects} projects")
+        self._page_info.setText(f"{total_projects} 件中 {shown} 件を表示")
 
         # さらに読み込むボタンの表示制御
         self._load_more_btn.setVisible(end_idx < total_projects)
@@ -238,3 +240,50 @@ class DashboardScreen(BaseScreen):
         self._search_text = ""
         self._search_input.clear()
         self._refresh_grid()
+
+    def _calculate_columns(self) -> int:
+        """利用可能な幅に応じて列数を計算."""
+        from ..components.cards.project_card import ProjectCard
+        
+        if not self._scroll_area:
+            return 4
+        
+        available_width = self._scroll_area.viewport().width()
+        card_width = ProjectCard.CARD_WIDTH
+        spacing = 20
+        
+        columns = max(1, available_width // (card_width + spacing))
+        return columns
+
+    def resizeEvent(self, event) -> None:
+        """ウィンドウサイズ変更時にグリッドを再配置."""
+        super().resizeEvent(event)
+        
+        new_columns = self._calculate_columns()
+        if new_columns != self._current_columns:
+            self._current_columns = new_columns
+            self._relayout_grid()
+
+    def showEvent(self, event) -> None:
+        """ウィジェット表示時にグリッドを再配置."""
+        super().showEvent(event)
+        # 表示後に正しい列数で再配置
+        new_columns = self._calculate_columns()
+        if new_columns != self._current_columns:
+            self._current_columns = new_columns
+            self._relayout_grid()
+
+    def _relayout_grid(self) -> None:
+        """現在のカードをグリッドに再配置."""
+        # 全てのウィジェットを取り出して再配置
+        widgets = []
+        while self._grid_layout.count():
+            item = self._grid_layout.takeAt(0)
+            if item.widget():
+                widgets.append(item.widget())
+        
+        col_count = self._current_columns
+        for i, widget in enumerate(widgets):
+            row = i // col_count
+            col = i % col_count
+            self._grid_layout.addWidget(widget, row, col)

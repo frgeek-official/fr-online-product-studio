@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ..components.cards.image_card import AddMoreAssetsCard, ImageCard
+from ..components.cards.image_card import ImageCard
 from ..components.dialogs import UploadDialog
 from ..components.product_list_item import ProductListItem
 from ..db.models import ProductImageModel, ProductModel, ProjectModel
@@ -49,6 +49,7 @@ class ProjectDetailScreen(BaseScreen):
         self._selected_image_ids: set[int] = set()
         self._product_items: dict[int, ProductListItem] = {}
         self._image_cards: dict[int, ImageCard] = {}
+        self._current_columns = 4
         self._setup_ui()
 
     def _setup_ui(self) -> None:
@@ -84,10 +85,6 @@ class ProjectDetailScreen(BaseScreen):
         self._grid_scroll.setWidget(self._grid_container)
         main_layout.addWidget(self._grid_scroll, 1)
 
-        # フッター
-        footer = self._create_footer()
-        main_layout.addWidget(footer)
-
         layout.addWidget(main_container, 1)
 
     def _create_sidebar(self) -> QWidget:
@@ -120,7 +117,7 @@ class ProjectDetailScreen(BaseScreen):
         layout.addWidget(back_btn)
 
         # セクションヘッダー
-        inventory_label = QLabel("INVENTORY")
+        inventory_label = QLabel("商品リスト")
         inventory_label.setStyleSheet("""
             font-size: 11px;
             font-weight: bold;
@@ -131,7 +128,7 @@ class ProjectDetailScreen(BaseScreen):
 
         # 検索フィルター
         self._search_input = QLineEdit()
-        self._search_input.setPlaceholderText("Filter product IDs...")
+        self._search_input.setPlaceholderText("商品IDで検索")
         self._search_input.setStyleSheet("""
             QLineEdit {
                 background: #16161e;
@@ -164,26 +161,6 @@ class ProjectDetailScreen(BaseScreen):
         self._product_scroll.setWidget(self._product_list_container)
         layout.addWidget(self._product_scroll, 1)
 
-        # 新規商品追加ボタン
-        new_product_btn = QPushButton("+ New Product")
-        new_product_btn.setStyleSheet("""
-            QPushButton {
-                background: transparent;
-                color: #888;
-                border: 1px dashed #24242e;
-                border-radius: 8px;
-                font-size: 13px;
-                padding: 12px;
-            }
-            QPushButton:hover {
-                color: #00c2a8;
-                border-color: #00c2a8;
-            }
-        """)
-        new_product_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        new_product_btn.clicked.connect(self._on_new_product_clicked)
-        layout.addWidget(new_product_btn)
-
         return sidebar
 
     def _create_header(self) -> QWidget:
@@ -204,25 +181,6 @@ class ProjectDetailScreen(BaseScreen):
 
         layout.addStretch()
 
-        # 編集ボタン
-        edit_btn = QPushButton("編集する")
-        edit_btn.setStyleSheet("""
-            QPushButton {
-                background: #24242e;
-                color: #fff;
-                border: none;
-                border-radius: 8px;
-                font-size: 13px;
-                padding: 10px 20px;
-            }
-            QPushButton:hover {
-                background: #34343e;
-            }
-        """)
-        edit_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        edit_btn.clicked.connect(self._on_edit_project_clicked)
-        layout.addWidget(edit_btn)
-
         # アップロードボタン
         upload_btn = QPushButton("ドライブにアップロード")
         upload_btn.setStyleSheet("""
@@ -242,38 +200,7 @@ class ProjectDetailScreen(BaseScreen):
         upload_btn.clicked.connect(self._on_upload_clicked)
         layout.addWidget(upload_btn)
 
-        # Add Assets ボタン
-        add_assets_btn = QPushButton("+ Add Assets")
-        add_assets_btn.setStyleSheet("""
-            QPushButton {
-                background: #00c2a8;
-                color: #000;
-                border: none;
-                border-radius: 8px;
-                font-size: 13px;
-                font-weight: bold;
-                padding: 10px 20px;
-            }
-            QPushButton:hover {
-                background: #00d4b8;
-            }
-        """)
-        add_assets_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        add_assets_btn.clicked.connect(self._on_add_assets_clicked)
-        layout.addWidget(add_assets_btn)
-
-        return header
-
-    def _create_footer(self) -> QWidget:
-        """フッターを作成."""
-        footer = QWidget()
-        layout = QHBoxLayout(footer)
-        layout.setContentsMargins(0, 16, 0, 0)
-        layout.setSpacing(16)
-
-        layout.addStretch()
-
-        # フォルダを開くボタン
+        # ファイルの場所を開くボタン
         open_folder_btn = QPushButton("ファイルの場所を開く")
         open_folder_btn.setStyleSheet("""
             QPushButton {
@@ -292,40 +219,12 @@ class ProjectDetailScreen(BaseScreen):
         open_folder_btn.clicked.connect(self._on_open_folder_clicked)
         layout.addWidget(open_folder_btn)
 
-        layout.addStretch()
-
-        # Delete Selected ボタン
-        self._delete_btn = QPushButton("Delete Selected")
-        self._delete_btn.setStyleSheet("""
-            QPushButton {
-                background: #ff4444;
-                color: #fff;
-                border: none;
-                border-radius: 8px;
-                font-size: 13px;
-                font-weight: bold;
-                padding: 10px 20px;
-            }
-            QPushButton:hover {
-                background: #ff5555;
-            }
-            QPushButton:disabled {
-                background: #4a2020;
-                color: #888;
-            }
-        """)
-        self._delete_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._delete_btn.clicked.connect(self._on_delete_selected_clicked)
-        self._delete_btn.setEnabled(False)
-        layout.addWidget(self._delete_btn)
-
-        return footer
+        return header
 
     def on_navigate(self, params: dict[str, Any]) -> None:
         """画面遷移時の初期化."""
         self._project_id = params.get("project_id")
         self._selected_product_id = None
-        self._selected_image_ids.clear()
         self._search_input.clear()
         self._load_project()
 
@@ -400,8 +299,6 @@ class ProjectDetailScreen(BaseScreen):
                 widget.deleteLater()
 
         self._image_cards.clear()
-        self._selected_image_ids.clear()
-        self._update_delete_button()
 
         if not self._selected_product_id:
             return
@@ -413,7 +310,7 @@ class ProjectDetailScreen(BaseScreen):
 
         # 画像を取得
         images = list(product.images.order_by(ProductImageModel.name))
-        col_count = 4
+        col_count = self._calculate_columns()
 
         for i, image in enumerate(images):
             row = i // col_count
@@ -429,19 +326,9 @@ class ProjectDetailScreen(BaseScreen):
             card.clicked.connect(self._on_image_clicked)
             card.edit_clicked.connect(self._on_image_edit_clicked)
             card.delete_clicked.connect(self._on_image_delete_clicked)
-            card.selection_changed.connect(self._on_image_selection_changed)
 
             self._grid_layout.addWidget(card, row, col)
             self._image_cards[image.id] = card
-
-        # Add more assets カードを追加
-        idx = len(images)
-        row = idx // col_count
-        col = idx % col_count
-
-        add_card = AddMoreAssetsCard()
-        add_card.clicked.connect(self._on_add_assets_clicked)
-        self._grid_layout.addWidget(add_card, row, col)
 
     def _select_product(self, product_id: int) -> None:
         """商品を選択."""
@@ -457,15 +344,6 @@ class ProjectDetailScreen(BaseScreen):
         # グリッド更新
         self._refresh_image_grid()
 
-    def _update_delete_button(self) -> None:
-        """削除ボタンの状態を更新."""
-        has_selection = len(self._selected_image_ids) > 0
-        self._delete_btn.setEnabled(has_selection)
-        if has_selection:
-            self._delete_btn.setText(f"Delete Selected ({len(self._selected_image_ids)})")
-        else:
-            self._delete_btn.setText("Delete Selected")
-
     # イベントハンドラー
 
     def _on_back_clicked(self) -> None:
@@ -479,21 +357,6 @@ class ProjectDetailScreen(BaseScreen):
     def _on_product_clicked(self, product_id: int) -> None:
         """商品クリック."""
         self._select_product(product_id)
-
-    def _on_new_product_clicked(self) -> None:
-        """新規商品追加クリック."""
-        # TODO: Phase 6 で実装
-        QMessageBox.information(self, "Info", "新規商品追加機能は後のフェーズで実装予定です")
-
-    def _on_edit_project_clicked(self) -> None:
-        """プロジェクト編集クリック."""
-        # TODO: Phase 6 で実装
-        QMessageBox.information(self, "Info", "プロジェクト編集機能は後のフェーズで実装予定です")
-
-    def _on_add_assets_clicked(self) -> None:
-        """アセット追加クリック."""
-        # TODO: Phase 6 で実装
-        QMessageBox.information(self, "Info", "アセット追加機能は後のフェーズで実装予定です")
 
     def _on_upload_clicked(self) -> None:
         """アップロードボタンクリック.
@@ -517,50 +380,6 @@ class ProjectDetailScreen(BaseScreen):
         if folder_path.exists():
             # macOSでFinderを開く
             subprocess.run(["open", str(folder_path)])
-
-    def _on_delete_selected_clicked(self) -> None:
-        """選択画像削除クリック."""
-        if not self._selected_image_ids:
-            return
-
-        count = len(self._selected_image_ids)
-        reply = QMessageBox.question(
-            self,
-            "確認",
-            f"{count}個の画像を削除しますか？\nこの操作は取り消せません。",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
-        )
-
-        if reply == QMessageBox.StandardButton.Yes:
-            # 画像を削除
-            for image_id in list(self._selected_image_ids):
-                try:
-                    image = ProductImageModel.get_by_id(image_id)
-                    # ファイル削除
-                    for path_attr in [
-                        "filepath",
-                        "original_filepath",
-                        "background_removed_filepath",
-                        "centered_filepath",
-                        "product_mask_filepath",
-                        "background_mask_filepath",
-                    ]:
-                        filepath = getattr(image, path_attr)
-                        if filepath:
-                            path = Path(filepath)
-                            if path.exists():
-                                path.unlink()
-                    # DB削除
-                    image.delete_instance()
-                except ProductImageModel.DoesNotExist:
-                    pass
-
-            # 商品リストの画像数を更新
-            self._refresh_product_list(self._search_input.text().strip())
-
-            # グリッド更新
-            self._refresh_image_grid()
 
     def _on_image_clicked(self, image_id: int) -> None:
         """画像カードクリック."""
@@ -609,10 +428,49 @@ class ProjectDetailScreen(BaseScreen):
             except ProductImageModel.DoesNotExist:
                 pass
 
-    def _on_image_selection_changed(self, image_id: int, selected: bool) -> None:
-        """画像選択状態変更."""
-        if selected:
-            self._selected_image_ids.add(image_id)
-        else:
-            self._selected_image_ids.discard(image_id)
-        self._update_delete_button()
+    def _calculate_columns(self) -> int:
+        """利用可能な幅に応じて列数を計算."""
+        from ..components.cards.image_card import ImageCard
+
+        if not hasattr(self, "_grid_scroll") or not self._grid_scroll:
+            return 4
+
+        available_width = self._grid_scroll.viewport().width()
+        card_width = ImageCard.CARD_WIDTH
+        spacing = 16
+
+        columns = max(1, available_width // (card_width + spacing))
+        return columns
+
+    def resizeEvent(self, event) -> None:
+        """ウィンドウサイズ変更時にグリッドを再配置."""
+        super().resizeEvent(event)
+
+        new_columns = self._calculate_columns()
+        if new_columns != self._current_columns:
+            self._current_columns = new_columns
+            self._relayout_grid()
+
+    def showEvent(self, event) -> None:
+        """ウィジェット表示時にグリッドを再配置."""
+        super().showEvent(event)
+        # 表示後に正しい列数で再配置
+        new_columns = self._calculate_columns()
+        if new_columns != self._current_columns:
+            self._current_columns = new_columns
+            self._relayout_grid()
+
+    def _relayout_grid(self) -> None:
+        """現在のカードをグリッドに再配置."""
+        # 全てのウィジェットを取り出して再配置
+        widgets = []
+        while self._grid_layout.count():
+            item = self._grid_layout.takeAt(0)
+            if item.widget():
+                widgets.append(item.widget())
+
+        col_count = self._current_columns
+        for i, widget in enumerate(widgets):
+            row = i // col_count
+            col = i % col_count
+            self._grid_layout.addWidget(widget, row, col)

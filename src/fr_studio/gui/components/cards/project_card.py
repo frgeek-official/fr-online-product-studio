@@ -39,6 +39,9 @@ class ProjectCard(QFrame):
     """
 
     clicked = Signal(int)
+    
+    CARD_WIDTH = 280
+    CARD_HEIGHT = 220
 
     def __init__(
         self,
@@ -174,7 +177,7 @@ class NewProjectCard(QFrame):
 
     def _setup_ui(self) -> None:
         self.setFrameShape(QFrame.Shape.StyledPanel)
-        self.setFixedSize(280, 220)
+        self.setFixedSize(ProjectCard.CARD_WIDTH, ProjectCard.CARD_HEIGHT)
         self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self.setStyleSheet("""
             NewProjectCard {

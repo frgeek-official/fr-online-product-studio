@@ -24,10 +24,15 @@ class AppHeader(QWidget):
 
     def _setup_ui(self) -> None:
         self.setFixedHeight(56)
+        self.setObjectName("AppHeader")
         self.setStyleSheet("""
-            QWidget {
+            #AppHeader {
                 background: #0f1113;
                 border-bottom: 1px solid #2a2a35;
+            }
+            QLabel, QPushButton {
+                background: transparent;
+                border: none;
             }
         """)
 

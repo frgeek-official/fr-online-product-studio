@@ -62,7 +62,7 @@ class ProductListItem(QFrame):
         text_layout.setSpacing(2)
 
         # 商品ID
-        self._id_label = QLabel(f"PRD-{item_id}")
+        self._id_label = QLabel(str(item_id))
         self._id_label.setStyleSheet("""
             font-size: 14px;
             font-weight: bold;
@@ -71,16 +71,15 @@ class ProductListItem(QFrame):
         """)
         text_layout.addWidget(self._id_label)
 
-        # キャプション（あれば）
-        if caption:
-            caption_label = QLabel(caption)
-            caption_label.setStyleSheet("""
-                font-size: 11px;
-                color: #888;
-                background: transparent;
-            """)
-            caption_label.setMaximumWidth(180)
-            text_layout.addWidget(caption_label)
+        # キャプション（商品名）
+        caption_label = QLabel(caption if caption else "")
+        caption_label.setStyleSheet("""
+            font-size: 11px;
+            color: #888;
+            background: transparent;
+        """)
+        caption_label.setMaximumWidth(180)
+        text_layout.addWidget(caption_label)
 
         layout.addWidget(text_container, 1)
 

@@ -295,10 +295,6 @@ class ImageEditorScreen(BaseScreen):
         content_layout.setContentsMargins(0, 0, 0, 0)
         content_layout.setSpacing(0)
 
-        # ヘッダー
-        header = self._create_header()
-        content_layout.addWidget(header)
-
         # プレビューエリア
         preview_area = self._create_preview_area()
         content_layout.addWidget(preview_area, 1)
@@ -313,62 +309,57 @@ class ImageEditorScreen(BaseScreen):
         sidebar = self._create_sidebar()
         main_layout.addWidget(sidebar)
 
-    def _create_header(self) -> QWidget:
-        """ヘッダーを作成."""
-        header = QWidget()
-        header.setFixedHeight(48)
-        header.setStyleSheet("""
-            background: rgba(22, 22, 30, 0.4);
-            border-bottom: 1px solid #2a2a35;
-        """)
-
-        layout = QHBoxLayout(header)
-        layout.setContentsMargins(24, 0, 24, 0)
-
-        # 戻るボタン
-        back_btn = QPushButton("← 商品リストへ戻る")
-        back_btn.setStyleSheet("""
-            QPushButton {
-                background: transparent;
-                border: none;
-                color: #888;
-                font-size: 12px;
-            }
-            QPushButton:hover {
-                color: #fff;
-            }
-        """)
-        back_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        back_btn.clicked.connect(self.back_requested.emit)
-        layout.addWidget(back_btn)
-
-        layout.addStretch()
-
-        # 商品ID表示
-        self._product_id_label = QLabel("Product ID: ---")
-        self._product_id_label.setStyleSheet("""
-            font-size: 10px;
-            text-transform: uppercase;
-            letter-spacing: 2px;
-            color: #666;
-        """)
-        layout.addWidget(self._product_id_label)
-
-        return header
-
     def _create_preview_area(self) -> QWidget:
         """プレビューエリアを作成."""
         preview_container = QWidget()
         preview_container.setStyleSheet("background: #0a0a0f;")
 
         layout = QVBoxLayout(preview_container)
-        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.setContentsMargins(48, 48, 48, 24)
+        layout.setContentsMargins(48, 24, 48, 24)
+        layout.setSpacing(16)
+
+        # ヘッダー行（戻るボタン + 商品ID・商品名）
+        header_row = QWidget()
+        header_layout = QHBoxLayout(header_row)
+        header_layout.setContentsMargins(0, 0, 0, 0)
+        header_layout.setSpacing(12)
+
+        # 戻るボタン
+        self._back_btn = QPushButton("← 戻る")
+        self._back_btn.setStyleSheet("""
+            QPushButton {
+                background: transparent;
+                border: 1px solid #3a3a4a;
+                border-radius: 4px;
+                color: #888;
+                padding: 6px 12px;
+                font-size: 12px;
+            }
+            QPushButton:hover {
+                border-color: #00c2a8;
+                color: #fff;
+            }
+        """)
+        self._back_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self._back_btn.clicked.connect(self._on_back_clicked)
+        header_layout.addWidget(self._back_btn)
+
+        # 商品ID・商品名表示（小さめ）
+        self._product_id_label = QLabel("")
+        self._product_id_label.setStyleSheet("""
+            font-size: 14px;
+            font-weight: bold;
+            color: #fff;
+        """)
+        header_layout.addWidget(self._product_id_label)
+        header_layout.addStretch()
+
+        layout.addWidget(header_row)
 
         # プレビューキャンバス（ズーム・パン対応）
         self._canvas = ImageCanvas()
         self._canvas.setMinimumSize(400, 400)
-        layout.addWidget(self._canvas)
+        layout.addWidget(self._canvas, 1)
 
         return preview_container
 
@@ -480,7 +471,16 @@ class ImageEditorScreen(BaseScreen):
         """)
 
         scroll_content = QWidget()
-        scroll_content.setStyleSheet("background: transparent;")
+        scroll_content.setStyleSheet("""
+            QWidget {
+                background: transparent;
+                border: none;
+            }
+            QLabel {
+                background: transparent;
+                border: none;
+            }
+        """)
         scroll_layout = QVBoxLayout(scroll_content)
         scroll_layout.setContentsMargins(0, 0, 0, 0)
         scroll_layout.setSpacing(0)
@@ -506,7 +506,17 @@ class ImageEditorScreen(BaseScreen):
     def _create_background_section(self) -> QWidget:
         """Backgroundセクションを作成."""
         section = QWidget()
-        section.setStyleSheet("border-bottom: 1px solid #2a2a35;")
+        section.setStyleSheet("""
+            QWidget {
+                background: transparent;
+                border: none;
+                border-bottom: 1px solid #2a2a35;
+            }
+            QLabel {
+                background: transparent;
+                border: none;
+            }
+        """)
 
         layout = QVBoxLayout(section)
         layout.setContentsMargins(24, 24, 24, 24)
@@ -577,7 +587,17 @@ class ImageEditorScreen(BaseScreen):
     def _create_contrast_section(self) -> QWidget:
         """Contrastセクションを作成."""
         section = QWidget()
-        section.setStyleSheet("border-bottom: 1px solid #2a2a35;")
+        section.setStyleSheet("""
+            QWidget {
+                background: transparent;
+                border: none;
+                border-bottom: 1px solid #2a2a35;
+            }
+            QLabel {
+                background: transparent;
+                border: none;
+            }
+        """)
 
         layout = QVBoxLayout(section)
         layout.setContentsMargins(24, 24, 24, 24)
@@ -827,9 +847,10 @@ class ImageEditorScreen(BaseScreen):
             )
         )
 
-        # 商品ID表示を更新
+        # 商品ID・商品名表示を更新
         product = self._image_model.product
-        self._product_id_label.setText(f"Product ID: PRD-{product.item_id}")
+        caption = product.caption if product.caption else ""
+        self._product_id_label.setText(f"{product.item_id} {caption}")
 
         # スライダーを画像のパラメータで初期化
         self._init_sliders_from_model()
@@ -1097,3 +1118,7 @@ class ImageEditorScreen(BaseScreen):
         self._image_model.background_contrast = self._contrast_bg
         self._image_model.is_background_removed = self._bg_removal_enabled
         self._image_model.save()
+
+    def _on_back_clicked(self) -> None:
+        """戻るボタンクリック."""
+        self.back_requested.emit()
