@@ -15,6 +15,7 @@ from .screens.dashboard import DashboardScreen
 from .screens.image_editor import ImageEditorScreen
 from .screens.loading import LoadingScreen
 from .screens.project_detail import ProjectDetailScreen
+from .db.models import ProductImageModel, ProductModel
 from .services.navigation import NavigationService, Screen
 from .workers.project_creation import ProjectCreationWorker
 
@@ -102,6 +103,8 @@ class FrgeekStudioApp(QMainWindow):
         # 画像編集
         image_editor = ImageEditorScreen()
         image_editor.back_requested.connect(self._on_image_editor_back)
+        image_editor.prev_product_requested.connect(self._on_prev_product_requested)
+        image_editor.next_product_requested.connect(self._on_next_product_requested)
         self._nav.register_screen(Screen.IMAGE_EDITOR, image_editor)
 
     def _load_stylesheet(self) -> None:
@@ -199,6 +202,76 @@ class FrgeekStudioApp(QMainWindow):
     def _on_image_editor_back(self) -> None:
         """画像編集画面から戻る時の処理."""
         self._nav.go_back()
+
+    def _on_prev_product_requested(self) -> None:
+        """前の商品へ移動."""
+        image_editor = self._nav.get_screen(Screen.IMAGE_EDITOR)
+        current_product_id = image_editor._current_product_id
+        if not current_product_id:
+            return
+
+        # 現在の商品からプロジェクトを取得
+        try:
+            current_product = ProductModel.get_by_id(current_product_id)
+        except ProductModel.DoesNotExist:
+            return
+        project = current_product.project
+
+        # プロジェクト内の商品一覧を取得（item_id順）
+        products = list(
+            ProductModel.select()
+            .where(ProductModel.project == project)
+            .order_by(ProductModel.item_id)
+        )
+
+        # 現在の商品のインデックスを見つける
+        current_index = next(
+            (i for i, p in enumerate(products) if p.id == current_product_id),
+            -1,
+        )
+
+        if current_index <= 0:
+            return  # 最初の商品、または見つからない
+
+        # 前の商品の最初の画像を取得
+        prev_product = products[current_index - 1]
+        first_image = prev_product.images.order_by(ProductImageModel.name).first()
+
+        if first_image:
+            self._nav.navigate_to(Screen.IMAGE_EDITOR, {"image_id": first_image.id})
+
+    def _on_next_product_requested(self) -> None:
+        """次の商品へ移動."""
+        image_editor = self._nav.get_screen(Screen.IMAGE_EDITOR)
+        current_product_id = image_editor._current_product_id
+        if not current_product_id:
+            return
+
+        try:
+            current_product = ProductModel.get_by_id(current_product_id)
+        except ProductModel.DoesNotExist:
+            return
+        project = current_product.project
+
+        products = list(
+            ProductModel.select()
+            .where(ProductModel.project == project)
+            .order_by(ProductModel.item_id)
+        )
+
+        current_index = next(
+            (i for i, p in enumerate(products) if p.id == current_product_id),
+            -1,
+        )
+
+        if current_index < 0 or current_index >= len(products) - 1:
+            return  # 最後の商品、または見つからない
+
+        next_product = products[current_index + 1]
+        first_image = next_product.images.order_by(ProductImageModel.name).first()
+
+        if first_image:
+            self._nav.navigate_to(Screen.IMAGE_EDITOR, {"image_id": first_image.id})
 
     @property
     def navigation(self) -> NavigationService:

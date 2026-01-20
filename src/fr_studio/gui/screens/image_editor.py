@@ -11,7 +11,18 @@ from typing import Any
 from PIL import Image, ImageOps
 from PySide6.QtCore import QPoint, Qt, QTimer, Signal
 from PySide6.QtCore import QSize
-from PySide6.QtGui import QCursor, QIcon, QImage, QMouseEvent, QPainter, QPixmap, QResizeEvent, QWheelEvent
+from PySide6.QtGui import (
+    QCursor,
+    QIcon,
+    QImage,
+    QKeySequence,
+    QMouseEvent,
+    QPainter,
+    QPixmap,
+    QResizeEvent,
+    QShortcut,
+    QWheelEvent,
+)
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -306,6 +317,9 @@ class ImageEditorScreen(BaseScreen):
 
     def _setup_ui(self) -> None:
         """UIを構築."""
+        # キーボードフォーカスを受け取れるようにする
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+
         main_layout = QHBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
@@ -330,6 +344,33 @@ class ImageEditorScreen(BaseScreen):
         # 右側: サイドバー
         sidebar = self._create_sidebar()
         main_layout.addWidget(sidebar)
+
+        # キーボードショートカットを設定
+        self._setup_shortcuts()
+
+    def _setup_shortcuts(self) -> None:
+        """キーボードショートカットを設定."""
+        # ⌥⌘R: 背景除去トグル
+        shortcut_bg = QShortcut(QKeySequence("Alt+Ctrl+R"), self)
+        shortcut_bg.activated.connect(
+            lambda: self._bg_toggle.setChecked(not self._bg_toggle.isChecked())
+        )
+
+        # ⌥⌘←: 前の商品
+        shortcut_prev_product = QShortcut(QKeySequence("Alt+Ctrl+Left"), self)
+        shortcut_prev_product.activated.connect(self.prev_product_requested.emit)
+
+        # ⌥⌘→: 次の商品
+        shortcut_next_product = QShortcut(QKeySequence("Alt+Ctrl+Right"), self)
+        shortcut_next_product.activated.connect(self.next_product_requested.emit)
+
+        # ⌥←: 前の画像
+        shortcut_prev_image = QShortcut(QKeySequence("Alt+Left"), self)
+        shortcut_prev_image.activated.connect(self._on_prev_image)
+
+        # ⌥→: 次の画像
+        shortcut_next_image = QShortcut(QKeySequence("Alt+Right"), self)
+        shortcut_next_image.activated.connect(self._on_next_image)
 
     def _create_preview_area(self) -> QWidget:
         """プレビューエリアを作成."""
@@ -375,6 +416,11 @@ class ImageEditorScreen(BaseScreen):
         """)
         header_layout.addWidget(self._product_id_label)
         header_layout.addStretch()
+
+        # 画像切り替えショートカットヒント
+        image_nav_hint = QLabel("画像: ⌥←/→")
+        image_nav_hint.setStyleSheet("color: #555; font-size: 10px;")
+        header_layout.addWidget(image_nav_hint)
 
         layout.addWidget(header_row)
 
@@ -562,6 +608,12 @@ class ImageEditorScreen(BaseScreen):
         """)
         header.addWidget(title)
         header.addStretch()
+
+        # スライダー操作ヒント
+        slider_hint = QLabel("Tab: 移動 / ←→: 調整")
+        slider_hint.setStyleSheet("color: #555; font-size: 9px;")
+        header.addWidget(slider_hint)
+
         layout.addLayout(header)
 
         # 背景除去トグル
@@ -589,6 +641,12 @@ class ImageEditorScreen(BaseScreen):
         """)
         self._bg_toggle.stateChanged.connect(self._on_bg_toggle_changed)
         toggle_row.addWidget(self._bg_toggle)
+
+        # ショートカットヒント
+        bg_hint = QLabel("⌥⌘R")
+        bg_hint.setStyleSheet("color: #555; font-size: 9px;")
+        toggle_row.addWidget(bg_hint)
+
         layout.addLayout(toggle_row)
 
         # エッジ加工スライダー
@@ -703,7 +761,11 @@ class ImageEditorScreen(BaseScreen):
         slider.setMinimum(min_val)
         slider.setMaximum(max_val)
         slider.setValue(default)
+        slider.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         slider.setStyleSheet("""
+            QSlider {
+                padding: 2px;
+            }
             QSlider::groove:horizontal {
                 background: #2a2a35;
                 height: 4px;
@@ -718,6 +780,10 @@ class ImageEditorScreen(BaseScreen):
             }
             QSlider::handle:horizontal:hover {
                 background: #00d4b8;
+            }
+            QSlider:focus {
+                border: 2px solid #00c2a8;
+                border-radius: 4px;
             }
         """)
         slider.valueChanged.connect(callback)
@@ -742,7 +808,7 @@ class ImageEditorScreen(BaseScreen):
         layout.setSpacing(12)
 
         # 前の商品ボタン
-        prev_btn = QPushButton("< 前の商品へ")
+        prev_btn = QPushButton("< 前の商品へ (⌥⌘←)")
         prev_btn.setFixedHeight(40)
         prev_btn.setStyleSheet("""
             QPushButton {
@@ -752,7 +818,6 @@ class ImageEditorScreen(BaseScreen):
                 color: #aaa;
                 font-size: 11px;
                 font-weight: bold;
-                text-transform: uppercase;
                 letter-spacing: 1px;
             }
             QPushButton:hover {
@@ -766,7 +831,7 @@ class ImageEditorScreen(BaseScreen):
         layout.addWidget(prev_btn)
 
         # 次の商品ボタン
-        next_btn = QPushButton("次の商品へ >")
+        next_btn = QPushButton("次の商品へ > (⌥⌘→)")
         next_btn.setFixedHeight(40)
         next_btn.setStyleSheet("""
             QPushButton {
@@ -776,7 +841,6 @@ class ImageEditorScreen(BaseScreen):
                 color: #00c2a8;
                 font-size: 11px;
                 font-weight: bold;
-                text-transform: uppercase;
                 letter-spacing: 1px;
             }
             QPushButton:hover {
@@ -948,6 +1012,8 @@ class ImageEditorScreen(BaseScreen):
         image_id = params.get("image_id")
         if image_id:
             self._load_image(image_id)
+        # キーボードショートカットを受け取るためにフォーカスを取得
+        self.setFocus()
 
     def _load_image(self, image_id: int) -> None:
         """画像データを読み込む."""
