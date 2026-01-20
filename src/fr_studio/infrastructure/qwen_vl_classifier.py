@@ -1,6 +1,5 @@
 """Qwen2.5-VLを使用した画像ビュー分類の実装."""
 
-from pathlib import Path
 from typing import Any
 
 import torch
@@ -9,6 +8,7 @@ from transformers import AutoProcessor, Qwen2VLForConditionalGeneration
 
 from fr_studio.application.image_view_classifier import ViewClassification, ViewType
 
+from .model_state import AsyncModelLoader, ModelState
 
 CLASSIFICATION_PROMPT = """You are classifying product images of clothing.
 
@@ -29,6 +29,8 @@ class QwenVLClassifier:
     """Qwen2-VL-2B-Instructを使用した画像ビュー分類.
 
     洋服画像を7クラス（front, back, sleeve, hem, tag, zoom, other）に分類する。
+
+    モデルは非同期でロードされ、推論時にロード完了を待機する。
     """
 
     def __init__(
@@ -51,12 +53,14 @@ class QwenVLClassifier:
         self._model: Qwen2VLForConditionalGeneration | None = None
         self._processor: Any = None
         self._device: str = ""
+        self._loader = AsyncModelLoader()
+
+    def start_loading(self) -> None:
+        """モデルのバックグラウンドロードを開始."""
+        self._loader.start_loading(self._load_model)
 
     def _load_model(self) -> None:
-        """モデルを遅延ロードする."""
-        if self._model is not None:
-            return
-
+        """モデルを実際にロードする（内部メソッド）."""
         # デバイス検出
         if torch.cuda.is_available():
             self._device = "cuda"
@@ -85,6 +89,31 @@ class QwenVLClassifier:
                 torch_dtype=torch_dtype,
                 trust_remote_code=True,
             ).to(self._device)
+
+    @property
+    def model_state(self) -> ModelState:
+        """モデルの状態を取得."""
+        return self._loader.state
+
+    @property
+    def is_loaded(self) -> bool:
+        """モデルがロード済みか確認."""
+        return self._loader.is_loaded
+
+    def wait_until_loaded(self, timeout: float | None = None) -> bool:
+        """モデルのロード完了を待機.
+
+        Args:
+            timeout: タイムアウト秒数（Noneで無制限）
+
+        Returns:
+            True: ロード完了
+            False: タイムアウトまたは未開始
+
+        Raises:
+            RuntimeError: モデルのロードでエラーが発生した場合
+        """
+        return self._loader.wait_until_loaded(timeout)
 
     def _resize_image(self, image: Image.Image) -> Image.Image:
         """画像をリサイズする.
@@ -129,15 +158,22 @@ class QwenVLClassifier:
     def classify(self, image: Image.Image) -> ViewClassification:
         """画像ビューを分類する.
 
+        モデルがロード中の場合は、ロード完了まで待機する。
+
         Args:
             image: 入力画像（RGB or RGBA）
 
         Returns:
             分類結果
+
+        Raises:
+            RuntimeError: モデルのロードに失敗した場合
         """
-        self._load_model()
-        assert self._model is not None
-        assert self._processor is not None
+        # モデルのロード完了を待機
+        self.wait_until_loaded()
+
+        if self._model is None or self._processor is None:
+            raise RuntimeError("モデルがロードされていません")
 
         # RGBAの場合はRGBに変換
         if image.mode == "RGBA":

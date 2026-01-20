@@ -13,8 +13,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from threading import Lock
-from typing import Any, Callable, TypeVar
+from typing import Any, TypeVar
 
 T = TypeVar("T")
 
@@ -132,7 +133,8 @@ def register_image_processing_services() -> None:
     """画像処理サービスをDIContainerに登録する.
 
     アプリ起動時に呼び出す。
-    即座にインスタンスを生成してDIContainerに登録する。
+    インスタンスを生成してDIContainerに登録し、
+    MLモデルはバックグラウンドでロードを開始する。
     """
     from fr_studio.infrastructure.birefnet_remover import BiRefNetRemover
     from fr_studio.infrastructure.numpy_tone_adjuster import NumpyToneAdjuster
@@ -143,9 +145,18 @@ def register_image_processing_services() -> None:
 
     container = DIContainer.get_instance()
 
-    # 即座にインスタンスを生成して登録
-    container.register_instance(BiRefNetRemover, BiRefNetRemover())
-    container.register_instance(QwenVLClassifier, QwenVLClassifier())
+    # MLモデルを使用するサービス（バックグラウンドでロード）
+    birefnet = BiRefNetRemover()
+    qwen = QwenVLClassifier()
+
+    container.register_instance(BiRefNetRemover, birefnet)
+    container.register_instance(QwenVLClassifier, qwen)
+
+    # バックグラウンドでモデルロードを開始
+    birefnet.start_loading()
+    qwen.start_loading()
+
+    # 他のサービス（即座に使用可能）
     container.register_instance(PillowCenterer, PillowCenterer())
     container.register_instance(PillowEdgeRefiner, PillowEdgeRefiner())
     container.register_instance(PillowShadowAdder, PillowShadowAdder())

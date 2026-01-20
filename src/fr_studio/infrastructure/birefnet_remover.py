@@ -6,12 +6,16 @@ from PIL import Image
 from torchvision import transforms
 from transformers import AutoModelForImageSegmentation
 
+from .model_state import AsyncModelLoader, ModelState
+
 
 class BiRefNetRemover:
     """BiRefNetを使用した背景除去.
 
     HuggingFace Hubから`ZhengPeng7/BiRefNet`モデルをロードし、
     高精度な背景除去を実行する。
+
+    モデルは非同期でロードされ、推論時にロード完了を待機する。
     """
 
     MODEL_NAME = "ZhengPeng7/BiRefNet"
@@ -32,6 +36,16 @@ class BiRefNetRemover:
                 device = "cpu"
 
         self._device = device
+        self._model = None
+        self._transform = None
+        self._loader = AsyncModelLoader()
+
+    def start_loading(self) -> None:
+        """モデルのバックグラウンドロードを開始."""
+        self._loader.start_loading(self._load_model)
+
+    def _load_model(self) -> None:
+        """モデルを実際にロードする（内部メソッド）."""
         self._model = AutoModelForImageSegmentation.from_pretrained(
             self.MODEL_NAME,
             trust_remote_code=True,
@@ -45,6 +59,31 @@ class BiRefNetRemover:
             transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
         ])
 
+    @property
+    def model_state(self) -> ModelState:
+        """モデルの状態を取得."""
+        return self._loader.state
+
+    @property
+    def is_loaded(self) -> bool:
+        """モデルがロード済みか確認."""
+        return self._loader.is_loaded
+
+    def wait_until_loaded(self, timeout: float | None = None) -> bool:
+        """モデルのロード完了を待機.
+
+        Args:
+            timeout: タイムアウト秒数（Noneで無制限）
+
+        Returns:
+            True: ロード完了
+            False: タイムアウトまたは未開始
+
+        Raises:
+            RuntimeError: モデルのロードでエラーが発生した場合
+        """
+        return self._loader.wait_until_loaded(timeout)
+
     def switch_device(self, device: str) -> None:
         """デバイスを切り替える.
 
@@ -52,7 +91,8 @@ class BiRefNetRemover:
             device: 切り替え先のデバイス（"cuda", "mps", "cpu"）
         """
         self._device = device
-        self._model.to(device)
+        if self._model is not None:
+            self._model.to(device)
 
     @property
     def device(self) -> str:
@@ -62,12 +102,23 @@ class BiRefNetRemover:
     def remove_background(self, image: Image.Image) -> Image.Image:
         """背景を除去する.
 
+        モデルがロード中の場合は、ロード完了まで待機する。
+
         Args:
             image: 入力画像（RGB or RGBA）
 
         Returns:
             背景が透過されたRGBA画像
+
+        Raises:
+            RuntimeError: モデルのロードに失敗した場合
         """
+        # モデルのロード完了を待機
+        self.wait_until_loaded()
+
+        if self._model is None or self._transform is None:
+            raise RuntimeError("モデルがロードされていません")
+
         original_size = image.size
 
         if image.mode != "RGB":
