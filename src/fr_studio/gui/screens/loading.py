@@ -18,7 +18,7 @@ from .base import BaseScreen
 
 class LoadingScreen(BaseScreen):
     """ローディング画面.
-    
+
     進捗バーとログ表示を提供する。
     """
 
@@ -53,7 +53,8 @@ class LoadingScreen(BaseScreen):
         self._progress = QProgressBar()
         self._progress.setRange(0, 100)
         self._progress.setValue(0)
-        self._progress.setStyleSheet("""
+        self._progress.setStyleSheet(
+            """
             QProgressBar {
                 border: none;
                 border-radius: 4px;
@@ -65,7 +66,8 @@ class LoadingScreen(BaseScreen):
                 background: #00c2a8;
                 border-radius: 4px;
             }
-        """)
+        """
+        )
         container_layout.addWidget(self._progress)
 
         # 進捗テキスト
@@ -75,14 +77,15 @@ class LoadingScreen(BaseScreen):
         container_layout.addWidget(self._progress_text)
 
         # ログエリア
-        log_label = QLabel("Activity")
+        log_label = QLabel("進行状況")
         log_label.setStyleSheet("color: #888; font-size: 12px;")
         container_layout.addWidget(log_label)
 
         self._log = QTextEdit()
         self._log.setReadOnly(True)
         self._log.setMaximumHeight(200)
-        self._log.setStyleSheet("""
+        self._log.setStyleSheet(
+            """
             QTextEdit {
                 background: #1a1a1a;
                 border: 1px solid #333;
@@ -91,7 +94,8 @@ class LoadingScreen(BaseScreen):
                 font-family: monospace;
                 font-size: 12px;
             }
-        """)
+        """
+        )
         container_layout.addWidget(self._log)
 
         layout.addWidget(container)
@@ -106,7 +110,7 @@ class LoadingScreen(BaseScreen):
 
     def set_progress(self, message: str, percent: int) -> None:
         """進捗を更新.
-        
+
         Args:
             message: 進捗メッセージ
             percent: 進捗率 (0-100)
@@ -118,6 +122,7 @@ class LoadingScreen(BaseScreen):
     def add_log(self, message: str) -> None:
         """ログを追加."""
         from datetime import datetime
+
         timestamp = datetime.now().strftime("%H:%M:%S")
         self._log.append(f"[{timestamp}] {message}")
         # 最下部にスクロール

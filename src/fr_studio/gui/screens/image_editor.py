@@ -10,8 +10,10 @@ from typing import Any
 
 from PIL import Image, ImageOps
 from PySide6.QtCore import QPoint, Qt, QTimer, Signal
-from PySide6.QtGui import QCursor, QImage, QMouseEvent, QPainter, QPixmap, QResizeEvent, QWheelEvent
+from PySide6.QtCore import QSize
+from PySide6.QtGui import QCursor, QIcon, QImage, QMouseEvent, QPainter, QPixmap, QResizeEvent, QWheelEvent
 from PySide6.QtWidgets import (
+    QApplication,
     QCheckBox,
     QFrame,
     QGraphicsPixmapItem,
@@ -282,6 +284,26 @@ class ImageEditorScreen(BaseScreen):
 
         self._setup_ui()
 
+        # ローディングオーバーレイ
+        self._loading_overlay = QWidget(self)
+        self._loading_overlay.setStyleSheet("""
+            background: rgba(0, 0, 0, 0.7);
+        """)
+        self._loading_overlay.hide()
+
+        loading_layout = QVBoxLayout(self._loading_overlay)
+        loading_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        loading_label = QLabel("背景除去処理中...")
+        loading_label.setStyleSheet("""
+            color: #fff;
+            font-size: 18px;
+            font-weight: bold;
+            background: transparent;
+        """)
+        loading_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        loading_layout.addWidget(loading_label)
+
     def _setup_ui(self) -> None:
         """UIを構築."""
         main_layout = QHBoxLayout(self)
@@ -376,25 +398,27 @@ class ImageEditorScreen(BaseScreen):
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(8)
 
-        # 左矢印
-        left_btn = QPushButton("◀")
+        # 左矢印（前の画像へ）
+        assets_dir = Path(__file__).parent.parent / "assets" / "icons"
+        prev_icon = QIcon(str(assets_dir / "prev.png"))
+        
+        left_btn = QPushButton()
+        left_btn.setIcon(prev_icon)
+        left_btn.setIconSize(QSize(20, 20))
         left_btn.setFixedSize(32, 32)
         left_btn.setStyleSheet("""
             QPushButton {
                 background: rgba(13, 13, 18, 0.8);
                 border: 1px solid rgba(255, 255, 255, 0.1);
                 border-radius: 16px;
-                color: rgba(255, 255, 255, 0.4);
-                font-size: 12px;
             }
             QPushButton:hover {
-                color: #fff;
                 background: #0d0d12;
                 border-color: rgba(255, 255, 255, 0.2);
             }
         """)
         left_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        left_btn.clicked.connect(self._scroll_thumbnails_left)
+        left_btn.clicked.connect(self._on_prev_image)
         layout.addWidget(left_btn)
 
         # スクロールエリア
@@ -423,25 +447,26 @@ class ImageEditorScreen(BaseScreen):
         self._thumbnail_scroll.setWidget(self._thumbnail_container)
         layout.addWidget(self._thumbnail_scroll, 1)
 
-        # 右矢印
-        right_btn = QPushButton("▶")
+        # 右矢印（次の画像へ）
+        next_icon = QIcon(str(assets_dir / "next.png"))
+        
+        right_btn = QPushButton()
+        right_btn.setIcon(next_icon)
+        right_btn.setIconSize(QSize(20, 20))
         right_btn.setFixedSize(32, 32)
         right_btn.setStyleSheet("""
             QPushButton {
                 background: rgba(13, 13, 18, 0.8);
                 border: 1px solid rgba(255, 255, 255, 0.1);
                 border-radius: 16px;
-                color: rgba(255, 255, 255, 0.4);
-                font-size: 12px;
             }
             QPushButton:hover {
-                color: #fff;
                 background: #0d0d12;
                 border-color: rgba(255, 255, 255, 0.2);
             }
         """)
         right_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        right_btn.clicked.connect(self._scroll_thumbnails_right)
+        right_btn.clicked.connect(self._on_next_image)
         layout.addWidget(right_btn)
 
         return strip_container
@@ -767,9 +792,31 @@ class ImageEditorScreen(BaseScreen):
 
     # === イベントハンドラ ===
 
+    def resizeEvent(self, event: QResizeEvent) -> None:
+        """リサイズ時にオーバーレイを調整."""
+        super().resizeEvent(event)
+        self._loading_overlay.setGeometry(self.rect())
+
+    def _show_loading(self) -> None:
+        """ローディングオーバーレイを表示."""
+        self._loading_overlay.setGeometry(self.rect())
+        self._loading_overlay.raise_()
+        self._loading_overlay.show()
+        QApplication.processEvents()
+
+    def _hide_loading(self) -> None:
+        """ローディングオーバーレイを非表示."""
+        self._loading_overlay.hide()
+
     def _on_bg_toggle_changed(self, state: int) -> None:
         """背景除去トグル変更."""
         self._bg_removal_enabled = state == Qt.CheckState.Checked.value
+
+        # ONにしたときに未処理ならローディング表示
+        if self._bg_removal_enabled:
+            if self._image_model and not self._image_model.is_background_removed:
+                self._show_loading()
+
         self._schedule_preview_update()
 
     def _on_edge_changed(self, value: int) -> None:
@@ -816,6 +863,78 @@ class ImageEditorScreen(BaseScreen):
         """サムネイルを右にスクロール."""
         scrollbar = self._thumbnail_scroll.horizontalScrollBar()
         scrollbar.setValue(scrollbar.value() + 200)
+
+    def _on_prev_image(self) -> None:
+        """前の画像を選択."""
+        if not self._product_images or self._current_image_id is None:
+            return
+
+        # 現在のインデックスを取得
+        current_index = None
+        for i, img in enumerate(self._product_images):
+            if img.id == self._current_image_id:
+                current_index = i
+                break
+
+        if current_index is None or current_index == 0:
+            return  # 最初の画像の場合は何もしない
+
+        # 前の画像を選択
+        prev_image = self._product_images[current_index - 1]
+        self._select_image(prev_image.id)
+
+        # サムネイルをスクロールして表示
+        self._scroll_to_thumbnail(prev_image.id)
+
+    def _on_next_image(self) -> None:
+        """次の画像を選択."""
+        if not self._product_images or self._current_image_id is None:
+            return
+
+        # 現在のインデックスを取得
+        current_index = None
+        for i, img in enumerate(self._product_images):
+            if img.id == self._current_image_id:
+                current_index = i
+                break
+
+        if current_index is None or current_index >= len(self._product_images) - 1:
+            return  # 最後の画像の場合は何もしない
+
+        # 次の画像を選択
+        next_image = self._product_images[current_index + 1]
+        self._select_image(next_image.id)
+
+        # サムネイルをスクロールして表示
+        self._scroll_to_thumbnail(next_image.id)
+
+    def _scroll_to_thumbnail(self, image_id: int) -> None:
+        """指定した画像のサムネイルが見えるようにスクロール."""
+        # レイアウト更新を待ってからスクロール
+        QTimer.singleShot(50, lambda: self._do_scroll_to_thumbnail(image_id))
+
+    def _do_scroll_to_thumbnail(self, image_id: int) -> None:
+        """実際のスクロール処理."""
+        if image_id not in self._thumbnail_items:
+            return
+
+        thumbnail = self._thumbnail_items[image_id]
+        # サムネイルの位置を取得
+        thumb_pos = thumbnail.pos().x()
+        thumb_width = thumbnail.width()
+
+        # スクロールエリアの表示幅を取得
+        scroll_width = self._thumbnail_scroll.viewport().width()
+
+        # スクロールバーを取得して位置を設定
+        scrollbar = self._thumbnail_scroll.horizontalScrollBar()
+        current_scroll = scrollbar.value()
+
+        # サムネイルが表示領域の外にある場合のみスクロール
+        if thumb_pos < current_scroll:
+            scrollbar.setValue(thumb_pos)
+        elif thumb_pos + thumb_width > current_scroll + scroll_width:
+            scrollbar.setValue(thumb_pos + thumb_width - scroll_width)
 
     def _on_thumbnail_clicked(self, image_id: int) -> None:
         """サムネイルクリック."""
@@ -1033,6 +1152,9 @@ class ImageEditorScreen(BaseScreen):
 
         # プレビューに表示
         self._display_preview(image)
+
+        # ローディングを非表示
+        self._hide_loading()
 
     def _perform_background_removal(self) -> Image.Image | None:
         """背景除去を実行し、結果を保存."""

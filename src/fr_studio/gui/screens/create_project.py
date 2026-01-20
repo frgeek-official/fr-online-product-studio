@@ -3,6 +3,7 @@
 新規プロジェクトの情報を入力する画面。
 """
 
+import unicodedata
 from datetime import datetime
 
 from PySide6.QtCore import Qt, Signal
@@ -72,23 +73,23 @@ class TagWidget(QFrame):
         )
         layout.addWidget(label)
 
-        close_btn = QPushButton("×")
-        close_btn.setFixedSize(20, 20)
-        close_btn.setStyleSheet(
+        close_label = QLabel("×")
+        close_label.setFixedSize(18, 18)
+        close_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        close_label.setCursor(Qt.CursorShape.PointingHandCursor)
+        close_label.setStyleSheet(
             f"""
-            QPushButton {{
-                background: transparent;
-                border: none;
-                color: {text_color};
+            QLabel {{
+                background: {text_color};
+                border-radius: 9px;
+                color: #000;
                 font-size: 14px;
-            }}
-            QPushButton:hover {{
-                color: #fff;
+                font-weight: bold;
             }}
         """
         )
-        close_btn.clicked.connect(lambda: self.removed.emit(self._value))
-        layout.addWidget(close_btn)
+        close_label.mousePressEvent = lambda e: self.removed.emit(self._value)
+        layout.addWidget(close_label)
 
     @property
     def value(self) -> str:
@@ -394,20 +395,41 @@ class CreateProjectScreen(BaseScreen):
             }
         """
 
+    def _normalize_id(self, text: str) -> str | None:
+        """商品IDを正規化.
+
+        全角→半角変換し、数値のみを返す。
+        数値でない場合はNoneを返す。
+        """
+        # 全角→半角変換
+        normalized = unicodedata.normalize("NFKC", text.strip())
+        # 数値のみ
+        if normalized.isdigit():
+            return normalized
+        return None
+
     def _add_product_id(self) -> None:
         """商品IDを追加."""
-        text = self._id_input.text().strip()
-        if text and text not in self._product_ids:
-            self._product_ids.append(text)
-            self._add_tag(text, is_exclude=False)
+        text = self._id_input.text()
+        normalized = self._normalize_id(text)
+
+        if normalized and normalized not in self._product_ids:
+            # 100個制限
+            if len(self._product_ids) >= 100:
+                self._id_input.clear()
+                return
+            self._product_ids.append(normalized)
+            self._add_tag(normalized, is_exclude=False)
         self._id_input.clear()
 
     def _add_exclude_id(self) -> None:
         """除外IDを追加."""
-        text = self._exclude_input.text().strip()
-        if text and text not in self._exclude_ids:
-            self._exclude_ids.append(text)
-            self._add_tag(text, is_exclude=True)
+        text = self._exclude_input.text()
+        normalized = self._normalize_id(text)
+
+        if normalized and normalized not in self._exclude_ids:
+            self._exclude_ids.append(normalized)
+            self._add_tag(normalized, is_exclude=True)
         self._exclude_input.clear()
 
     def _add_range(self) -> None:
@@ -416,6 +438,9 @@ class CreateProjectScreen(BaseScreen):
         end = self._range_end.value()
         if start > 0 and end >= start:
             for i in range(start, end + 1):
+                # 100個制限
+                if len(self._product_ids) >= 100:
+                    break
                 id_str = str(i)
                 if id_str not in self._product_ids:
                     self._product_ids.append(id_str)

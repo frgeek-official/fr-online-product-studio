@@ -11,6 +11,7 @@ from PySide6.QtCore import Signal
 
 # infrastructure層からimport
 from fr_studio.application.image_view_classifier import ViewType
+from fr_studio.infrastructure.google_sheets_client import GoogleSheetsClient, SheetItem
 from fr_studio.infrastructure.birefnet_remover import BiRefNetRemover
 from fr_studio.infrastructure.pillow_centerer import PillowCenterer
 from fr_studio.infrastructure.pillow_edge_refiner import PillowEdgeRefiner
@@ -60,6 +61,16 @@ class ProjectCreationWorker(BaseWorker):
         self._centerer = inject(PillowCenterer)
         self._edge_refiner = inject(PillowEdgeRefiner)
         self._shadow_adder = inject(PillowShadowAdder)
+
+        # Spreadsheetから全商品を取得してキャッシュ
+        self._sheet_items: dict[int, SheetItem] = {}
+        try:
+            sheets_client = GoogleSheetsClient()
+            all_items = sheets_client.get_all_items()
+            self._sheet_items = {item.item_id: item for item in all_items}
+        except Exception:
+            # エラー時は空のまま続行（captionは空になる）
+            pass
 
     def run(self) -> None:
         """ワーカーのメイン処理."""
@@ -136,12 +147,16 @@ class ProjectCreationWorker(BaseWorker):
         product_dir = Path(project.project_dir_path) / str(item_id)
         product_dir.mkdir(parents=True, exist_ok=True)
 
+        # Spreadsheetから商品名を取得
+        sheet_item = self._sheet_items.get(item_id)
+        caption = sheet_item.item_name if sheet_item else ""
+
         # 商品レコード作成
         product = ProductModel.create(
             item_id=item_id,
             project=project,
             product_dir_path=str(product_dir),
-            caption="",  # TODO: Google Sheetsから取得
+            caption=caption,
         )
 
         # 画像ダウンロード

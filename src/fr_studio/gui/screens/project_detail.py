@@ -367,9 +367,19 @@ class ProjectDetailScreen(BaseScreen):
             QMessageBox.warning(self, "警告", "プロジェクトが読み込まれていません")
             return
 
-        dialog = UploadDialog(self)
-        dialog.start_upload(self._project)
-        dialog.exec()
+        # 確認ダイアログ
+        reply = QMessageBox.question(
+            self,
+            "確認",
+            "プロジェクトの商品全てアップロード",
+            QMessageBox.StandardButton.Cancel | QMessageBox.StandardButton.Ok,
+            QMessageBox.StandardButton.Cancel,
+        )
+
+        if reply == QMessageBox.StandardButton.Ok:
+            dialog = UploadDialog(self)
+            dialog.start_upload(self._project)
+            dialog.exec()
 
     def _on_open_folder_clicked(self) -> None:
         """フォルダを開くクリック."""
