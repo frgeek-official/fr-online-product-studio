@@ -327,6 +327,7 @@ class ImageEditorScreen(BaseScreen):
 
         # 処理パラメータ（UIスライダー値）
         self._bg_removal_enabled: bool = True
+        self._centering_enabled: bool = True
         self._edge_value: int = 12  # 0-100
         self._shadow_value: int = 45  # 0-100
         self._contrast_whole: int = 0  # -100 to +100
@@ -335,7 +336,8 @@ class ImageEditorScreen(BaseScreen):
 
         # 画像データ
         self._original_image: Image.Image | None = None
-        self._centered_image: Image.Image | None = None
+        self._bg_removed_image: Image.Image | None = None  # 背景除去済み（センタリングなし）
+        self._centered_image: Image.Image | None = None  # 背景除去+センタリング済み
         self._product_mask: Image.Image | None = None
         self._bg_mask: Image.Image | None = None
 
@@ -365,7 +367,7 @@ class ImageEditorScreen(BaseScreen):
         loading_layout = QVBoxLayout(self._loading_overlay)
         loading_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        loading_label = QLabel("背景除去処理中...")
+        loading_label = QLabel("処理中...")
         loading_label.setStyleSheet("""
             color: #fff;
             font-size: 18px;
@@ -414,6 +416,12 @@ class ImageEditorScreen(BaseScreen):
         shortcut_bg = QShortcut(QKeySequence("Alt+Ctrl+R"), self)
         shortcut_bg.activated.connect(
             lambda: self._bg_toggle.setChecked(not self._bg_toggle.isChecked())
+        )
+
+        # ⌥⌘C: 中央寄せトグル
+        shortcut_center = QShortcut(QKeySequence("Alt+Ctrl+C"), self)
+        shortcut_center.activated.connect(
+            lambda: self._center_toggle.setChecked(not self._center_toggle.isChecked())
         )
 
         # ⌥⌘←: 前の商品
@@ -709,6 +717,39 @@ class ImageEditorScreen(BaseScreen):
 
         layout.addLayout(toggle_row)
 
+        # 中央寄せトグル
+        center_row = QHBoxLayout()
+        center_label = QLabel("中央寄せ")
+        center_label.setStyleSheet("font-size: 11px; color: #aaa;")
+        center_row.addWidget(center_label)
+        center_row.addStretch()
+
+        self._center_toggle = QCheckBox()
+        self._center_toggle.setChecked(True)
+        self._center_toggle.setStyleSheet("""
+            QCheckBox {
+                spacing: 0px;
+            }
+            QCheckBox::indicator {
+                width: 36px;
+                height: 20px;
+                border-radius: 10px;
+                background: #2a2a35;
+            }
+            QCheckBox::indicator:checked {
+                background: #00c2a8;
+            }
+        """)
+        self._center_toggle.stateChanged.connect(self._on_center_toggle_changed)
+        center_row.addWidget(self._center_toggle)
+
+        # ショートカットヒント
+        center_hint = QLabel("⌥⌘C")
+        center_hint.setStyleSheet("color: #555; font-size: 9px;")
+        center_row.addWidget(center_hint)
+
+        layout.addLayout(center_row)
+
         # エッジ加工スライダー
         edge_slider = self._create_slider_row(
             "エッジ加工", 0, 100, 12, self._on_edge_changed
@@ -943,6 +984,16 @@ class ImageEditorScreen(BaseScreen):
 
         self._schedule_preview_update()
 
+    def _on_center_toggle_changed(self, state: int) -> None:
+        """中央寄せトグル変更."""
+        self._centering_enabled = state == Qt.CheckState.Checked.value
+
+        # 背景除去がONの場合のみローディング表示
+        if self._bg_removal_enabled:
+            self._show_loading()
+
+        self._schedule_preview_update()
+
     def _on_edge_changed(self, value: int) -> None:
         """エッジ加工スライダー変更."""
         self._edge_value = value
@@ -1130,6 +1181,9 @@ class ImageEditorScreen(BaseScreen):
         # 背景除去
         self._bg_toggle.setChecked(self._image_model.is_background_removed)
 
+        # 中央寄せ
+        self._center_toggle.setChecked(self._image_model.is_centered)
+
     def _load_image_files(self) -> None:
         """画像ファイルを読み込む."""
         if not self._image_model:
@@ -1137,6 +1191,7 @@ class ImageEditorScreen(BaseScreen):
 
         # キャッシュをリセット
         self._original_image = None
+        self._bg_removed_image = None
         self._centered_image = None
         self._product_mask = None
         self._bg_mask = None
@@ -1148,6 +1203,14 @@ class ImageEditorScreen(BaseScreen):
                 self._original_image = Image.open(path)
                 if self._original_image.mode != "RGBA":
                     self._original_image = self._original_image.convert("RGBA")
+
+        # 背景除去済み画像（センタリングなし）
+        if self._image_model.background_removed_filepath:
+            path = Path(self._image_model.background_removed_filepath)
+            if path.exists():
+                self._bg_removed_image = Image.open(path)
+                if self._bg_removed_image.mode != "RGBA":
+                    self._bg_removed_image = self._bg_removed_image.convert("RGBA")
 
         # 中央寄せ済み画像（背景除去済み）
         if self._image_model.centered_filepath:
@@ -1241,17 +1304,33 @@ class ImageEditorScreen(BaseScreen):
 
         # 処理する画像を決定
         if self._bg_removal_enabled:
-            if self._image_model.is_background_removed and self._centered_image:
-                # 既存の背景除去済み画像を使用
-                image = self._centered_image.copy()
-            elif self._original_image:
-                # 背景除去を実行
-                bg_removed = self._perform_background_removal()
-                if bg_removed is None:
+            if self._centering_enabled:
+                # 背景除去 + 中央寄せ
+                if self._image_model.is_background_removed and self._centered_image:
+                    # 既存の中央寄せ済み画像を使用
+                    image = self._centered_image.copy()
+                elif self._original_image:
+                    # 背景除去+中央寄せを実行
+                    bg_removed = self._perform_background_removal()
+                    if bg_removed is None:
+                        return
+                    image = bg_removed
+                else:
                     return
-                image = bg_removed
             else:
-                return
+                # 背景除去のみ（中央寄せなし）
+                if self._image_model.is_background_removed and self._bg_removed_image:
+                    # 既存の背景除去済み画像を使用
+                    image = self._bg_removed_image.copy()
+                elif self._original_image:
+                    # 背景除去を実行（中央寄せなし）
+                    bg_removed = self._perform_background_removal()
+                    if bg_removed is None:
+                        return
+                    # 中央寄せをスキップ
+                    image = self._bg_removed_image.copy() if self._bg_removed_image else bg_removed
+                else:
+                    return
 
             # エッジ加工
             erode = max(0, self._edge_value // 20)  # 0-100 → 0-5
@@ -1391,6 +1470,7 @@ class ImageEditorScreen(BaseScreen):
         self._image_model.product_contrast = self._contrast_product
         self._image_model.background_contrast = self._contrast_bg
         self._image_model.is_background_removed = self._bg_removal_enabled
+        self._image_model.is_centered = self._centering_enabled
         self._image_model.save()
 
     def _on_back_clicked(self) -> None:
