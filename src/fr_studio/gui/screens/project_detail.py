@@ -75,12 +75,16 @@ class ProjectDetailScreen(BaseScreen):
         self._grid_scroll = QScrollArea()
         self._grid_scroll.setWidgetResizable(True)
         self._grid_scroll.setFrameShape(QFrame.Shape.NoFrame)
-        self._grid_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._grid_scroll.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
 
         self._grid_container = QWidget()
         self._grid_layout = QGridLayout(self._grid_container)
         self._grid_layout.setSpacing(16)
-        self._grid_layout.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+        self._grid_layout.setAlignment(
+            Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft
+        )
 
         self._grid_scroll.setWidget(self._grid_container)
         main_layout.addWidget(self._grid_scroll, 1)
@@ -99,7 +103,8 @@ class ProjectDetailScreen(BaseScreen):
 
         # 戻るボタン
         back_btn = QPushButton("< トップへ戻る")
-        back_btn.setStyleSheet("""
+        back_btn.setStyleSheet(
+            """
             QPushButton {
                 background: transparent;
                 color: #888;
@@ -111,25 +116,29 @@ class ProjectDetailScreen(BaseScreen):
             QPushButton:hover {
                 color: #fff;
             }
-        """)
+        """
+        )
         back_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         back_btn.clicked.connect(self._on_back_clicked)
         layout.addWidget(back_btn)
 
         # セクションヘッダー
         inventory_label = QLabel("商品リスト")
-        inventory_label.setStyleSheet("""
+        inventory_label.setStyleSheet(
+            """
             font-size: 11px;
             font-weight: bold;
             color: #666;
             letter-spacing: 1px;
-        """)
+        """
+        )
         layout.addWidget(inventory_label)
 
         # 検索フィルター
         self._search_input = QLineEdit()
         self._search_input.setPlaceholderText("商品IDで検索")
-        self._search_input.setStyleSheet("""
+        self._search_input.setStyleSheet(
+            """
             QLineEdit {
                 background: #16161e;
                 border: 1px solid #24242e;
@@ -141,7 +150,8 @@ class ProjectDetailScreen(BaseScreen):
             QLineEdit:focus {
                 border-color: #00c2a8;
             }
-        """)
+        """
+        )
         self._search_input.textChanged.connect(self._on_search_changed)
         layout.addWidget(self._search_input)
 
@@ -149,7 +159,9 @@ class ProjectDetailScreen(BaseScreen):
         self._product_scroll = QScrollArea()
         self._product_scroll.setWidgetResizable(True)
         self._product_scroll.setFrameShape(QFrame.Shape.NoFrame)
-        self._product_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._product_scroll.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
         self._product_scroll.setStyleSheet("background: transparent;")
 
         self._product_list_container = QWidget()
@@ -172,18 +184,21 @@ class ProjectDetailScreen(BaseScreen):
 
         # プロジェクト名
         self._title_label = QLabel("Project Name")
-        self._title_label.setStyleSheet("""
+        self._title_label.setStyleSheet(
+            """
             font-size: 28px;
             font-weight: bold;
             color: #fff;
-        """)
+        """
+        )
         layout.addWidget(self._title_label)
 
         layout.addStretch()
 
         # アップロードボタン
-        upload_btn = QPushButton("ドライブにアップロード")
-        upload_btn.setStyleSheet("""
+        upload_btn = QPushButton("アップロード")
+        upload_btn.setStyleSheet(
+            """
             QPushButton {
                 background: #24242e;
                 color: #fff;
@@ -195,14 +210,16 @@ class ProjectDetailScreen(BaseScreen):
             QPushButton:hover {
                 background: #34343e;
             }
-        """)
+        """
+        )
         upload_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         upload_btn.clicked.connect(self._on_upload_clicked)
         layout.addWidget(upload_btn)
 
         # ファイルの場所を開くボタン
         open_folder_btn = QPushButton("ファイルの場所を開く")
-        open_folder_btn.setStyleSheet("""
+        open_folder_btn.setStyleSheet(
+            """
             QPushButton {
                 background: #24242e;
                 color: #fff;
@@ -214,7 +231,8 @@ class ProjectDetailScreen(BaseScreen):
             QPushButton:hover {
                 background: #34343e;
             }
-        """)
+        """
+        )
         open_folder_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         open_folder_btn.clicked.connect(self._on_open_folder_clicked)
         layout.addWidget(open_folder_btn)
@@ -308,8 +326,8 @@ class ProjectDetailScreen(BaseScreen):
         except ProductModel.DoesNotExist:
             return
 
-        # 画像を取得
-        images = list(product.images.order_by(ProductImageModel.name))
+        # 画像を取得（sortで並び替え）
+        images = list(product.images.order_by(ProductImageModel.sort))
         col_count = self._calculate_columns()
 
         for i, image in enumerate(images):
@@ -333,7 +351,10 @@ class ProjectDetailScreen(BaseScreen):
     def _select_product(self, product_id: int) -> None:
         """商品を選択."""
         # 前の選択を解除
-        if self._selected_product_id and self._selected_product_id in self._product_items:
+        if (
+            self._selected_product_id
+            and self._selected_product_id in self._product_items
+        ):
             self._product_items[self._selected_product_id].set_selected(False)
 
         # 新しい選択

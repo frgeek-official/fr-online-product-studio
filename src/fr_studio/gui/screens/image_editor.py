@@ -9,10 +9,12 @@ from pathlib import Path
 from typing import Any
 
 from PIL import Image, ImageOps
-from PySide6.QtCore import QPoint, Qt, QTimer, Signal
-from PySide6.QtCore import QSize
+from PySide6.QtCore import QMimeData, QPoint, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import (
     QCursor,
+    QDrag,
+    QDragEnterEvent,
+    QDropEvent,
     QIcon,
     QImage,
     QKeySequence,
@@ -55,6 +57,7 @@ class ThumbnailItem(QFrame):
     """サムネイルアイテム."""
 
     clicked = Signal(int)  # image_id
+    reordered = Signal(int, int)  # source_id, target_id
 
     def __init__(
         self,
@@ -66,6 +69,9 @@ class ThumbnailItem(QFrame):
         super().__init__(parent)
         self._image_id = image_id
         self._selected = False
+        self._drag_start_pos: QPoint | None = None
+        self._drag_over = False
+        self.setAcceptDrops(True)
         self._setup_ui(filepath, name)
 
     def _setup_ui(self, filepath: str, name: str) -> None:
@@ -109,7 +115,15 @@ class ThumbnailItem(QFrame):
         layout.addWidget(self._label)
 
     def _update_style(self) -> None:
-        if self._selected:
+        if self._drag_over:
+            self.setStyleSheet("""
+                ThumbnailItem {
+                    border: 2px dashed #ff9800;
+                    border-radius: 8px;
+                    background: rgba(255, 152, 0, 0.1);
+                }
+            """)
+        elif self._selected:
             self.setStyleSheet("""
                 ThumbnailItem {
                     border: 2px solid #00c2a8;
@@ -143,8 +157,54 @@ class ThumbnailItem(QFrame):
                 """)
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
-        self.clicked.emit(self._image_id)
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._drag_start_pos = event.pos()
+        # clickedは発火しない（mouseReleaseEventで判定）
         super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event: QMouseEvent) -> None:
+        # ドラッグしなかった場合のみclickedを発火
+        if self._drag_start_pos is not None:
+            self.clicked.emit(self._image_id)
+        self._drag_start_pos = None
+        super().mouseReleaseEvent(event)
+
+    def mouseMoveEvent(self, event: QMouseEvent) -> None:
+        if not self._drag_start_pos:
+            return
+        # ドラッグ開始判定（10px以上移動）
+        if (event.pos() - self._drag_start_pos).manhattanLength() < 10:
+            return
+        # ドラッグ開始
+        drag = QDrag(self)
+        mime = QMimeData()
+        mime.setText(str(self._image_id))
+        drag.setMimeData(mime)
+        drag.exec(Qt.DropAction.MoveAction)
+        self._drag_start_pos = None  # ドラッグ後はNoneにしてclickedを発火させない
+
+    def dragEnterEvent(self, event: QDragEnterEvent) -> None:
+        if event.mimeData().hasText():
+            source_id = int(event.mimeData().text())
+            if source_id != self._image_id:
+                self._drag_over = True
+                self._update_style()
+                event.acceptProposedAction()
+                return
+        event.ignore()
+
+    def dragLeaveEvent(self, event) -> None:
+        self._drag_over = False
+        self._update_style()
+
+    def dropEvent(self, event: QDropEvent) -> None:
+        self._drag_over = False
+        self._update_style()
+        if event.mimeData().hasText():
+            source_id = int(event.mimeData().text())
+            if source_id != self._image_id:
+                self.reordered.emit(source_id, self._image_id)
+        event.acceptProposedAction()
 
     def set_selected(self, selected: bool) -> None:
         if self._selected != selected:
@@ -1025,11 +1085,11 @@ class ImageEditorScreen(BaseScreen):
         self._current_image_id = image_id
         self._current_product_id = self._image_model.product_id
 
-        # 商品の全画像を取得
+        # 商品の全画像を取得（sortで並び替え）
         self._product_images = list(
-            ProductImageModel.select().where(
-                ProductImageModel.product == self._current_product_id
-            )
+            ProductImageModel.select()
+            .where(ProductImageModel.product == self._current_product_id)
+            .order_by(ProductImageModel.sort)
         )
 
         # 商品ID・商品名表示を更新
@@ -1127,10 +1187,36 @@ class ImageEditorScreen(BaseScreen):
                 name=img_model.name,
             )
             item.clicked.connect(self._on_thumbnail_clicked)
+            item.reordered.connect(self._on_thumbnail_reordered)
             item.set_selected(img_model.id == self._current_image_id)
 
             self._thumbnail_layout.addWidget(item)
             self._thumbnail_items[img_model.id] = item
+
+    def _on_thumbnail_reordered(self, source_id: int, target_id: int) -> None:
+        """サムネイルの並び替え処理."""
+        # リスト内での位置を取得
+        source_idx = next(
+            (i for i, m in enumerate(self._product_images) if m.id == source_id), None
+        )
+        target_idx = next(
+            (i for i, m in enumerate(self._product_images) if m.id == target_id), None
+        )
+
+        if source_idx is None or target_idx is None:
+            return
+
+        # リストを並び替え
+        item = self._product_images.pop(source_idx)
+        self._product_images.insert(target_idx, item)
+
+        # 全画像のsortを更新
+        for i, model in enumerate(self._product_images):
+            model.sort = i + 1
+            model.save()
+
+        # UIを更新
+        self._refresh_thumbnail_strip()
 
     def _select_image(self, image_id: int) -> None:
         """画像を選択."""
