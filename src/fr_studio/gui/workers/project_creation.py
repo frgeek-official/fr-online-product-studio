@@ -159,14 +159,23 @@ class ProjectCreationWorker(BaseWorker):
             caption=caption,
         )
 
-        # 画像ダウンロード
+        # 画像ダウンロード（originalsに保存）
         image_paths = self._downloader.download_images(item_id, product_dir)
 
         if not image_paths:
             return
 
-        # 各画像を処理（ファイル名昇順でsort値を設定）
-        sorted_paths = sorted(image_paths, key=lambda p: p.name)
+        # リサイズ版作成（編集用）
+        source_dir = product_dir / "source"
+        source_dir.mkdir(parents=True, exist_ok=True)
+
+        resized_paths = []
+        for original_path in image_paths:
+            resized_path = self._create_resized_image(original_path, source_dir)
+            resized_paths.append(resized_path)
+
+        # 各画像を処理（リサイズ版を使用、ファイル名昇順でsort値を設定）
+        sorted_paths = sorted(resized_paths, key=lambda p: p.name)
         for sort_index, img_path in enumerate(sorted_paths, start=1):
             if self.check_cancelled():
                 return
@@ -282,3 +291,28 @@ class ProjectCreationWorker(BaseWorker):
             center_content_w=center_content_w,
             center_content_h=center_content_h,
         )
+
+    def _create_resized_image(self, original_path: Path, dest_dir: Path) -> Path:
+        """元画像から編集用リサイズ版を作成.
+
+        Args:
+            original_path: 元画像パス
+            dest_dir: 保存先ディレクトリ
+
+        Returns:
+            リサイズ版のパス
+        """
+        image = Image.open(original_path)
+
+        # RGBに変換
+        if image.mode != "RGB":
+            image = image.convert("RGB")
+
+        # 1600x1600にリサイズ（アスペクト比維持）
+        image.thumbnail((1600, 1600), Image.Resampling.LANCZOS)
+
+        # JPG 70%で保存
+        dest_path = dest_dir / f"{original_path.stem}.jpg"
+        image.save(dest_path, "JPEG", quality=70)
+
+        return dest_path
