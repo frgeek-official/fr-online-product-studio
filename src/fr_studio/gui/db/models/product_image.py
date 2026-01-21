@@ -25,6 +25,7 @@ class ProductImageModel(BaseModel):
         whole_contrast: 全体コントラスト
         product_contrast: 商品部分コントラスト
         background_contrast: 背景部分コントラスト
+        center_content_x/y/w/h: センタリング計算用の元コンテンツbbox
         sort: 並び順（アップロード時のファイル名に使用）
 
         ファイルパス:
@@ -53,6 +54,12 @@ class ProductImageModel(BaseModel):
     whole_contrast = IntegerField(default=0)  # 全体コントラスト (-100 to 100)
     product_contrast = IntegerField(default=0)  # 商品コントラスト (-100 to 100)
     background_contrast = IntegerField(default=0)  # 背景コントラスト (-100 to 100)
+
+    # センタリングパラメータ（マスクから計算したbbox情報を保存）
+    center_content_x = IntegerField(default=0)  # 元コンテンツのX座標
+    center_content_y = IntegerField(default=0)  # 元コンテンツのY座標
+    center_content_w = IntegerField(default=0)  # 元コンテンツの幅
+    center_content_h = IntegerField(default=0)  # 元コンテンツの高さ
 
     # 並び順（アップロード時のファイル名に使用）
     sort = IntegerField(default=1)

@@ -73,6 +73,12 @@ class NavigationService(QObject):
             params: 画面に渡すパラメータ
             clear_history: Trueの場合、履歴をクリアする
         """
+        # 現在の画面がある場合、on_leave()を呼ぶ
+        if self._current_screen is not None:
+            current_widget = self._screens.get(self._current_screen)
+            if current_widget and hasattr(current_widget, "on_leave"):
+                current_widget.on_leave()
+
         if params is None:
             params = {}
 
@@ -103,6 +109,12 @@ class NavigationService(QObject):
         """
         if not self._history:
             return False
+
+        # 現在の画面のon_leave()を呼ぶ
+        if self._current_screen is not None:
+            current_widget = self._screens.get(self._current_screen)
+            if current_widget and hasattr(current_widget, "on_leave"):
+                current_widget.on_leave()
 
         screen_id, params = self._history.pop()
         self._current_screen = screen_id
