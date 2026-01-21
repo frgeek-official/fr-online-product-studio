@@ -19,6 +19,7 @@ from PySide6.QtGui import (
     QImage,
     QKeySequence,
     QMouseEvent,
+    QNativeGestureEvent,
     QPainter,
     QPixmap,
     QResizeEvent,
@@ -273,13 +274,29 @@ class ImageCanvas(QGraphicsView):
 
     def wheelEvent(self, event: QWheelEvent) -> None:
         """マウスホイールでズーム."""
-        factor = 1.15 if event.angleDelta().y() > 0 else 1 / 1.15
+        delta = event.angleDelta().y()
+        if delta == 0:
+            return
+
+        factor = 1.15 if delta > 0 else 1 / 1.15
         new_zoom = self._zoom * factor
 
-        # ズーム制限 (0.1x - 10x)
         if 0.1 <= new_zoom <= 10.0:
             self._zoom = new_zoom
             self.scale(factor, factor)
+
+    def viewportEvent(self, event) -> bool:
+        """macOSトラックパッドのピンチズーム対応."""
+        if isinstance(event, QNativeGestureEvent):
+            if event.gestureType() == Qt.NativeGestureType.ZoomNativeGesture:
+                delta = event.value()
+                factor = 1.0 + delta
+                new_zoom = self._zoom * factor
+                if 0.1 <= new_zoom <= 10.0:
+                    self._zoom = new_zoom
+                    self.scale(factor, factor)
+                return True
+        return super().viewportEvent(event)
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
         """パン開始."""
@@ -310,10 +327,9 @@ class ImageCanvas(QGraphicsView):
         super().mouseReleaseEvent(event)
 
     def resizeEvent(self, event: QResizeEvent) -> None:
-        """リサイズ時にフィット."""
+        """リサイズ時の処理."""
         super().resizeEvent(event)
-        if self._pixmap_item:
-            self.fit_in_view()
+        # ズームを維持するため、fit_in_viewを呼ばない
 
 
 class ImageEditorScreen(BaseScreen):
@@ -346,12 +362,11 @@ class ImageEditorScreen(BaseScreen):
         self._contrast_whole: int = 0  # -100 to +100
         self._contrast_product: int = 0  # -100 to +100
 
-        # 商品全体のキャッシュ（image_id → データ）
-        self._cached_processed: dict[int, Image.Image] = {}  # 処理済み画像
-        self._cached_originals: dict[int, Image.Image] = {}  # 元画像（RGBA）
-        self._cached_masks: dict[int, Image.Image] = {}  # 商品マスク
-        self._cached_bboxes: dict[int, tuple[int, int, int, int] | None] = {}  # bbox
-        self._cached_models: dict[int, ProductImageModel] = {}  # モデル参照
+        # 画像データ（新設計）
+        self._original_image: Image.Image | None = None  # 元画像（不変）
+        self._product_mask: Image.Image | None = None  # 商品マスク
+        self._bg_mask: Image.Image | None = None  # 背景マスク
+        self._cached_bbox: tuple[int, int, int, int] | None = None  # センタリング用bbox
 
         # サービス
         self._bg_remover = inject(BiRefNetRemover)
@@ -982,11 +997,7 @@ class ImageEditorScreen(BaseScreen):
         self._bg_removal_enabled = state == Qt.CheckState.Checked.value
 
         # ONにしたときにマスクがなければローディング表示
-        has_mask = (
-            self._current_image_id
-            and self._current_image_id in self._cached_masks
-        )
-        if self._bg_removal_enabled and not has_mask:
+        if self._bg_removal_enabled and not self._product_mask:
             self._show_loading()
 
         # センタリングと商品/背景コントラストの有効/無効を切り替え
@@ -1137,26 +1148,19 @@ class ImageEditorScreen(BaseScreen):
         """画面遷移時に呼ばれる."""
         image_id = params.get("image_id")
         if image_id:
-            self._load_product(image_id)
+            self._load_image(image_id)
         # キーボードショートカットを受け取るためにフォーカスを取得
         self.setFocus()
 
-    def _load_product(self, image_id: int) -> None:
-        """商品をロード（全画像を一括処理してキャッシュ）."""
+    def _load_image(self, image_id: int) -> None:
+        """画像データを読み込む."""
         try:
-            new_model = ProductImageModel.get_by_id(image_id)
+            self._image_model = ProductImageModel.get_by_id(image_id)
         except ProductImageModel.DoesNotExist:
             return
 
-        new_product_id = new_model.product_id
-
-        # 別の商品の場合はアンロード
-        if self._current_product_id and self._current_product_id != new_product_id:
-            self._unload_product()
-
-        self._image_model = new_model
         self._current_image_id = image_id
-        self._current_product_id = new_product_id
+        self._current_product_id = self._image_model.product_id
 
         # 商品の全画像を取得（sortで並び替え）
         self._product_images = list(
@@ -1164,11 +1168,6 @@ class ImageEditorScreen(BaseScreen):
             .where(ProductImageModel.product == self._current_product_id)
             .order_by(ProductImageModel.sort)
         )
-
-        # 全画像をロード・処理してキャッシュ（まだ処理していない場合のみ）
-        if not self._cached_processed:
-            for img_model in self._product_images:
-                self._load_and_process_single_image(img_model)
 
         # 商品ID・商品名表示を更新
         product = self._image_model.product
@@ -1181,134 +1180,14 @@ class ImageEditorScreen(BaseScreen):
         # サムネイルストリップを更新
         self._refresh_thumbnail_strip()
 
+        # 画像を読み込み
+        self._load_image_files()
+
         # コントロールの有効/無効状態を更新
         self._update_controls_enabled_state()
 
-        # キャッシュから表示
-        if image_id in self._cached_processed:
-            self._display_preview(self._cached_processed[image_id])
-
-    def _unload_product(self) -> None:
-        """現在の商品をアンロード."""
-        # 最終画像を保存
-        self._save_final_image()
-        self._save_parameters()
-
-        # キャッシュクリア
-        self._cached_processed.clear()
-        self._cached_originals.clear()
-        self._cached_masks.clear()
-        self._cached_bboxes.clear()
-        self._cached_models.clear()
-
-    def _load_and_process_single_image(self, img_model: ProductImageModel) -> None:
-        """1枚の画像をロード・処理してキャッシュ."""
-        img_id = img_model.id
-        self._cached_models[img_id] = img_model
-
-        # 元画像ロード
-        if img_model.original_filepath:
-            path = Path(img_model.original_filepath)
-            if path.exists():
-                original = Image.open(path)
-                if original.mode != "RGBA":
-                    original = original.convert("RGBA")
-                self._cached_originals[img_id] = original
-
-        # マスクロード
-        if img_model.product_mask_filepath:
-            path = Path(img_model.product_mask_filepath)
-            if path.exists():
-                mask = Image.open(path).convert("L")
-                self._cached_masks[img_id] = mask
-
-        # bbox復元
-        if img_model.center_content_w > 0 and img_model.center_content_h > 0:
-            self._cached_bboxes[img_id] = (
-                img_model.center_content_x,
-                img_model.center_content_y,
-                img_model.center_content_x + img_model.center_content_w,
-                img_model.center_content_y + img_model.center_content_h,
-            )
-
-        # 元画像がロードできた場合のみ処理
-        if img_id in self._cached_originals:
-            processed = self._process_image_with_params(
-                img_id,
-                bg_removal=img_model.is_background_removed,
-                centering=img_model.is_centered,
-                edge=img_model.edge_threshold * 10,
-                shadow=int(img_model.shadow_threshold * 100),
-                contrast_whole=img_model.whole_contrast,
-                contrast_product=img_model.product_contrast,
-            )
-            self._cached_processed[img_id] = processed
-
-    def _process_image_with_params(
-        self,
-        img_id: int,
-        bg_removal: bool,
-        centering: bool,
-        edge: int,
-        shadow: int,
-        contrast_whole: int,
-        contrast_product: int,
-    ) -> Image.Image:
-        """キャッシュ内の画像を指定パラメータで処理."""
-        image = self._cached_originals[img_id].copy()
-        mask = self._cached_masks.get(img_id)
-        bbox = self._cached_bboxes.get(img_id)
-
-        if bg_removal and mask:
-            # マスク適用
-            if mask.size != image.size:
-                mask_resized = mask.resize(image.size, Image.Resampling.LANCZOS)
-            else:
-                mask_resized = mask
-            image.putalpha(mask_resized)
-
-            if centering:
-                image = self._centerer.center_image(image, bbox=bbox)
-
-            # エッジ加工
-            erode = max(0, edge // 20)  # 0-100 → 0-5
-            feather = edge / 100.0  # 0-100 → 0.0-1.0
-            image = self._edge_refiner.refine(image, erode, feather)
-
-            # 影追加
-            shadow_opacity = int(shadow * 2.55)  # 0-100 → 0-255
-            shadow_adder = PillowShadowAdder(shadow_opacity=shadow_opacity)
-            image = shadow_adder.add_shadow(image)
-
-        # 商品コントラスト調整（マスクがある場合のみ）
-        if bg_removal and mask and contrast_product != 0:
-            if centering:
-                centered_product_mask = image.getchannel("A")
-            else:
-                centered_product_mask = mask
-
-            product_params = ToneParameters(
-                brightness=contrast_product * 0.5,
-                contrast=1.0 + contrast_product / 200.0,
-                gamma=1.0,
-            )
-            product_adjusted = self._tone_adjuster.adjust(image, product_params)
-            if centered_product_mask.size != image.size:
-                centered_product_mask = centered_product_mask.resize(
-                    image.size, Image.Resampling.LANCZOS
-                )
-            image = Image.composite(product_adjusted, image, centered_product_mask)
-
-        # 全体コントラスト
-        if contrast_whole != 0:
-            params = ToneParameters(
-                brightness=contrast_whole * 0.5,
-                contrast=1.0 + contrast_whole / 200.0,
-                gamma=1.0,
-            )
-            image = self._tone_adjuster.adjust(image, params)
-
-        return image
+        # プレビューを更新
+        self._update_preview()
 
     def _init_sliders_from_model(self) -> None:
         """モデルの値でスライダーを初期化."""
@@ -1345,6 +1224,51 @@ class ImageEditorScreen(BaseScreen):
             self._centering_enabled = False
             self._center_toggle.setChecked(False)
             self._center_toggle.setEnabled(False)
+
+    def _load_image_files(self) -> None:
+        """画像ファイルを読み込む."""
+        if not self._image_model:
+            return
+
+        # キャッシュをリセット
+        self._original_image = None
+        self._product_mask = None
+        self._bg_mask = None
+        self._cached_bbox = None
+
+        # 元画像
+        if self._image_model.original_filepath:
+            path = Path(self._image_model.original_filepath)
+            if path.exists():
+                self._original_image = Image.open(path)
+                if self._original_image.mode != "RGBA":
+                    self._original_image = self._original_image.convert("RGBA")
+
+        # 商品マスク
+        if self._image_model.product_mask_filepath:
+            path = Path(self._image_model.product_mask_filepath)
+            if path.exists():
+                self._product_mask = Image.open(path).convert("L")
+
+        # 背景マスク
+        if self._image_model.background_mask_filepath:
+            path = Path(self._image_model.background_mask_filepath)
+            if path.exists():
+                self._bg_mask = Image.open(path).convert("L")
+
+        # bboxをDBから復元
+        if (
+            self._image_model.center_content_w > 0
+            and self._image_model.center_content_h > 0
+        ):
+            self._cached_bbox = (
+                self._image_model.center_content_x,
+                self._image_model.center_content_y,
+                self._image_model.center_content_x + self._image_model.center_content_w,
+                self._image_model.center_content_y + self._image_model.center_content_h,
+            )
+        else:
+            self._cached_bbox = None
 
     def _refresh_thumbnail_strip(self) -> None:
         """サムネイルストリップを更新."""
@@ -1396,83 +1320,112 @@ class ImageEditorScreen(BaseScreen):
         self._refresh_thumbnail_strip()
 
     def _select_image(self, image_id: int) -> None:
-        """画像を選択（キャッシュから表示）."""
+        """画像を選択."""
         # 現在の画像を保存（切り替え前）
         self._save_final_image()
         self._save_parameters()
 
-        # サムネイル選択状態更新
+        # 古い選択を解除
         if self._current_image_id and self._current_image_id in self._thumbnail_items:
             self._thumbnail_items[self._current_image_id].set_selected(False)
+
+        # 新しい画像を読み込み
+        self._load_image(image_id)
+
+        # 新しい選択を設定
         if image_id in self._thumbnail_items:
             self._thumbnail_items[image_id].set_selected(True)
 
-        # 現在の画像ID更新
-        self._current_image_id = image_id
-        self._image_model = self._cached_models.get(image_id)
-
-        # スライダーをモデルの値で更新
-        self._init_sliders_from_model()
-
-        # コントロール状態更新
-        self._update_controls_enabled_state()
-
-        # キャッシュから表示（処理不要！）
-        if image_id in self._cached_processed:
-            self._display_preview(self._cached_processed[image_id])
-
     def _update_preview(self) -> None:
-        """現在の画像を再処理してプレビュー更新."""
-        if not self._current_image_id:
+        """プレビュー画像を更新."""
+        if not self._image_model or not self._original_image:
             return
 
-        # 元画像がキャッシュにない場合はスキップ
-        if self._current_image_id not in self._cached_originals:
-            return
+        # ベース画像
+        image = self._original_image.copy()
 
-        # 現在のUIパラメータで再処理
-        processed = self._process_image_with_params(
-            self._current_image_id,
-            bg_removal=self._bg_removal_enabled,
-            centering=self._centering_enabled,
-            edge=self._edge_value,
-            shadow=self._shadow_value,
-            contrast_whole=self._contrast_whole,
-            contrast_product=self._contrast_product,
-        )
+        # 背景除去がONの場合
+        if self._bg_removal_enabled:
+            # マスクがなければ生成
+            if not self._product_mask:
+                self._show_loading()
+                if not self._perform_background_removal():
+                    self._hide_loading()
+                    return
 
-        # キャッシュ更新
-        self._cached_processed[self._current_image_id] = processed
+            # マスクを適用して背景を透過
+            image = self._apply_mask_to_image(image)
 
-        # 表示
-        self._display_preview(processed)
+            # 中央寄せがONの場合
+            if self._centering_enabled:
+                image = self._centerer.center_image(image, bbox=self._cached_bbox)
+
+            # エッジ加工
+            erode = max(0, self._edge_value // 20)  # 0-100 → 0-5
+            feather = self._edge_value / 100.0  # 0-100 → 0.0-1.0
+            image = self._edge_refiner.refine(image, erode, feather)
+
+            # 影追加
+            shadow_opacity = int(self._shadow_value * 2.55)  # 0-100 → 0-255
+            shadow_adder = PillowShadowAdder(shadow_opacity=shadow_opacity)
+            image = shadow_adder.add_shadow(image)
+
+        # 商品コントラスト調整（マスクがある場合のみ適用可能）
+        if self._bg_removal_enabled and self._product_mask and self._contrast_product != 0:
+            # センタリング適用時はセンタリング後の画像からマスクを取得
+            if self._centering_enabled:
+                centered_product_mask = image.getchannel("A")
+            else:
+                centered_product_mask = self._product_mask
+
+            product_params = ToneParameters(
+                brightness=self._contrast_product * 0.5,
+                contrast=1.0 + self._contrast_product / 200.0,
+                gamma=1.0,
+            )
+            product_adjusted = self._tone_adjuster.adjust(image, product_params)
+            # マスクサイズを調整
+            if centered_product_mask.size != image.size:
+                centered_product_mask = centered_product_mask.resize(
+                    image.size, Image.Resampling.LANCZOS
+                )
+            image = Image.composite(product_adjusted, image, centered_product_mask)
+
+        # 全体のコントラスト
+        if self._contrast_whole != 0:
+            params = ToneParameters(
+                brightness=self._contrast_whole * 0.5,
+                contrast=1.0 + self._contrast_whole / 200.0,
+                gamma=1.0,
+            )
+            image = self._tone_adjuster.adjust(image, params)
+
+        # プレビューに表示
+        self._display_preview(image)
+
+        # ローディングを非表示
+        self._hide_loading()
 
     def _perform_background_removal(self) -> bool:
         """背景除去を実行し、マスクを生成・保存.
-
+        
         Returns:
             成功した場合True
         """
-        if not self._current_image_id or not self._image_model:
+        if not self._original_image or not self._image_model:
             return False
-
-        img_id = self._current_image_id
-        if img_id not in self._cached_originals:
-            return False
-
-        original = self._cached_originals[img_id]
 
         # 1. 背景除去（透過画像を取得）
-        removed = self._bg_remover.remove_background(original)
+        removed = self._bg_remover.remove_background(self._original_image)
 
-        # 2. マスク生成・キャッシュ
+        # 2. マスク生成
         alpha = removed.split()[3]
-        self._cached_masks[img_id] = alpha
-        bg_mask = ImageOps.invert(alpha)
+        self._product_mask = alpha
+        self._bg_mask = ImageOps.invert(alpha)
 
         # 3. センタリングパラメータを計算してDBに保存・キャッシュ
         bbox = alpha.getbbox()
-        self._cached_bboxes[img_id] = bbox
+        self._cached_bbox = bbox
         if bbox:
             self._image_model.center_content_x = bbox[0]
             self._image_model.center_content_y = bbox[1]
@@ -1488,8 +1441,8 @@ class ImageEditorScreen(BaseScreen):
         product_mask_path = processed_dir / f"{filename}_product_mask.png"
         bg_mask_path = processed_dir / f"{filename}_bg_mask.png"
 
-        alpha.save(product_mask_path)
-        bg_mask.save(bg_mask_path)
+        self._product_mask.save(product_mask_path)
+        self._bg_mask.save(bg_mask_path)
 
         # 5. DB更新（マスクパスとパラメータのみ）
         self._image_model.product_mask_filepath = str(product_mask_path)
@@ -1497,10 +1450,29 @@ class ImageEditorScreen(BaseScreen):
         self._image_model.is_background_removed = True
         self._image_model.save()
 
-        # キャッシュモデルも更新
-        self._cached_models[img_id] = self._image_model
-
         return True
+
+    def _apply_mask_to_image(self, image: Image.Image) -> Image.Image:
+        """マスクを適用して背景を透過.
+        
+        Args:
+            image: 入力画像（RGBA）
+            
+        Returns:
+            背景が透過されたRGBA画像
+        """
+        if not self._product_mask:
+            return image
+
+        # 画像サイズにマスクをリサイズ
+        mask = self._product_mask
+        if mask.size != image.size:
+            mask = mask.resize(image.size, Image.Resampling.LANCZOS)
+
+        # マスクをアルファチャンネルとして適用
+        result = image.copy()
+        result.putalpha(mask)
+        return result
 
     def _display_preview(self, image: Image.Image) -> None:
         """画像をプレビューラベルに表示."""
@@ -1547,17 +1519,64 @@ class ImageEditorScreen(BaseScreen):
         self._image_model.is_centered = self._centering_enabled
         self._image_model.save()
 
-        # キャッシュモデルも更新
-        if self._current_image_id:
-            self._cached_models[self._current_image_id] = self._image_model
-
     def _generate_final_image(self) -> Image.Image | None:
-        """全効果を適用した最終画像を生成（キャッシュから取得）."""
-        if not self._current_image_id:
+        """全効果を適用した最終画像を生成."""
+        if not self._original_image:
             return None
 
-        # キャッシュから取得
-        return self._cached_processed.get(self._current_image_id)
+        # ベース画像
+        image = self._original_image.copy()
+
+        # 背景除去がONの場合
+        if self._bg_removal_enabled and self._product_mask:
+            # マスクを適用して背景を透過
+            image = self._apply_mask_to_image(image)
+
+            # 中央寄せがONの場合
+            if self._centering_enabled:
+                image = self._centerer.center_image(image, bbox=self._cached_bbox)
+
+            # エッジ処理
+            erode = max(0, self._edge_value // 20)
+            feather = self._edge_value / 100.0
+            image = self._edge_refiner.refine(image, erode, feather)
+
+            # 影追加
+            if self._shadow_value > 0:
+                shadow_opacity = int(self._shadow_value * 2.55)
+                shadow_adder = PillowShadowAdder(shadow_opacity=shadow_opacity)
+                image = shadow_adder.add_shadow(image)
+
+            # 商品コントラスト調整
+            if self._product_mask and self._contrast_product != 0:
+                # センタリング適用時はセンタリング後の画像からマスクを取得
+                if self._centering_enabled:
+                    centered_product_mask = image.getchannel("A")
+                else:
+                    centered_product_mask = self._product_mask
+
+                product_params = ToneParameters(
+                    brightness=self._contrast_product * 0.5,
+                    contrast=1.0 + self._contrast_product / 200.0,
+                    gamma=1.0,
+                )
+                product_adjusted = self._tone_adjuster.adjust(image, product_params)
+                if centered_product_mask.size != image.size:
+                    centered_product_mask = centered_product_mask.resize(
+                        image.size, Image.Resampling.LANCZOS
+                    )
+                image = Image.composite(product_adjusted, image, centered_product_mask)
+
+        # 全体のコントラスト
+        if self._contrast_whole != 0:
+            params = ToneParameters(
+                brightness=self._contrast_whole * 0.5,
+                contrast=1.0 + self._contrast_whole / 200.0,
+                gamma=1.0,
+            )
+            image = self._tone_adjuster.adjust(image, params)
+
+        return image
 
     def _save_final_image(self) -> None:
         """最終画像をファイルに保存."""
