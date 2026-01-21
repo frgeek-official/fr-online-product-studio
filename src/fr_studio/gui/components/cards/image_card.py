@@ -331,6 +331,20 @@ class ImageCard(QFrame):
         """画像IDを取得."""
         return self._image_id
 
+    def update_thumbnail(self, filepath: str) -> None:
+        """サムネイル画像を更新."""
+        if filepath and Path(filepath).exists():
+            self._filepath = filepath
+            pixmap = QPixmap(filepath)
+            if not pixmap.isNull():
+                scaled = pixmap.scaled(
+                    self.CARD_WIDTH,
+                    180,
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation,
+                )
+                self._thumbnail.setPixmap(scaled)
+
 
 class AddMoreAssetsCard(QFrame):
     """アセット追加用プレースホルダーカード."""
