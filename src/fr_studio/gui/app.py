@@ -98,6 +98,7 @@ class FrgeekStudioApp(QMainWindow):
         project_detail = ProjectDetailScreen()
         project_detail.back_requested.connect(self._on_project_detail_back)
         project_detail.edit_clicked.connect(self._on_image_edit_requested)
+        project_detail.project_deleted.connect(self._on_project_deleted)
         self._nav.register_screen(Screen.PROJECT_DETAIL, project_detail)
 
         # 画像編集
@@ -193,6 +194,10 @@ class FrgeekStudioApp(QMainWindow):
 
     def _on_project_detail_back(self) -> None:
         """プロジェクト詳細画面から戻る時の処理."""
+        self._nav.navigate_to(Screen.DASHBOARD, clear_history=True)
+
+    def _on_project_deleted(self) -> None:
+        """プロジェクト削除後の処理."""
         self._nav.navigate_to(Screen.DASHBOARD, clear_history=True)
 
     def _on_image_edit_requested(self, image_id: int) -> None:

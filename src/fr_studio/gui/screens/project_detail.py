@@ -38,6 +38,7 @@ class ProjectDetailScreen(BaseScreen):
 
     edit_clicked = Signal(int)
     back_requested = Signal()
+    project_deleted = Signal()
 
     SIDEBAR_WIDTH = 288
 
@@ -75,16 +76,12 @@ class ProjectDetailScreen(BaseScreen):
         self._grid_scroll = QScrollArea()
         self._grid_scroll.setWidgetResizable(True)
         self._grid_scroll.setFrameShape(QFrame.Shape.NoFrame)
-        self._grid_scroll.setHorizontalScrollBarPolicy(
-            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
-        )
+        self._grid_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
         self._grid_container = QWidget()
         self._grid_layout = QGridLayout(self._grid_container)
         self._grid_layout.setSpacing(16)
-        self._grid_layout.setAlignment(
-            Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft
-        )
+        self._grid_layout.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
 
         self._grid_scroll.setWidget(self._grid_container)
         main_layout.addWidget(self._grid_scroll, 1)
@@ -103,8 +100,7 @@ class ProjectDetailScreen(BaseScreen):
 
         # 戻るボタン
         back_btn = QPushButton("< トップへ戻る")
-        back_btn.setStyleSheet(
-            """
+        back_btn.setStyleSheet("""
             QPushButton {
                 background: transparent;
                 color: #888;
@@ -116,29 +112,25 @@ class ProjectDetailScreen(BaseScreen):
             QPushButton:hover {
                 color: #fff;
             }
-        """
-        )
+        """)
         back_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         back_btn.clicked.connect(self._on_back_clicked)
         layout.addWidget(back_btn)
 
         # セクションヘッダー
         inventory_label = QLabel("商品リスト")
-        inventory_label.setStyleSheet(
-            """
+        inventory_label.setStyleSheet("""
             font-size: 11px;
             font-weight: bold;
             color: #666;
             letter-spacing: 1px;
-        """
-        )
+        """)
         layout.addWidget(inventory_label)
 
         # 検索フィルター
         self._search_input = QLineEdit()
         self._search_input.setPlaceholderText("商品IDで検索")
-        self._search_input.setStyleSheet(
-            """
+        self._search_input.setStyleSheet("""
             QLineEdit {
                 background: #16161e;
                 border: 1px solid #24242e;
@@ -150,8 +142,7 @@ class ProjectDetailScreen(BaseScreen):
             QLineEdit:focus {
                 border-color: #00c2a8;
             }
-        """
-        )
+        """)
         self._search_input.textChanged.connect(self._on_search_changed)
         layout.addWidget(self._search_input)
 
@@ -159,9 +150,7 @@ class ProjectDetailScreen(BaseScreen):
         self._product_scroll = QScrollArea()
         self._product_scroll.setWidgetResizable(True)
         self._product_scroll.setFrameShape(QFrame.Shape.NoFrame)
-        self._product_scroll.setHorizontalScrollBarPolicy(
-            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
-        )
+        self._product_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._product_scroll.setStyleSheet("background: transparent;")
 
         self._product_list_container = QWidget()
@@ -184,21 +173,18 @@ class ProjectDetailScreen(BaseScreen):
 
         # プロジェクト名
         self._title_label = QLabel("Project Name")
-        self._title_label.setStyleSheet(
-            """
+        self._title_label.setStyleSheet("""
             font-size: 28px;
             font-weight: bold;
             color: #fff;
-        """
-        )
+        """)
         layout.addWidget(self._title_label)
 
         layout.addStretch()
 
         # アップロードボタン
-        upload_btn = QPushButton("アップロード")
-        upload_btn.setStyleSheet(
-            """
+        upload_btn = QPushButton("ドライブにアップロード")
+        upload_btn.setStyleSheet("""
             QPushButton {
                 background: #24242e;
                 color: #fff;
@@ -210,16 +196,14 @@ class ProjectDetailScreen(BaseScreen):
             QPushButton:hover {
                 background: #34343e;
             }
-        """
-        )
+        """)
         upload_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         upload_btn.clicked.connect(self._on_upload_clicked)
         layout.addWidget(upload_btn)
 
         # ファイルの場所を開くボタン
         open_folder_btn = QPushButton("ファイルの場所を開く")
-        open_folder_btn.setStyleSheet(
-            """
+        open_folder_btn.setStyleSheet("""
             QPushButton {
                 background: #24242e;
                 color: #fff;
@@ -231,11 +215,29 @@ class ProjectDetailScreen(BaseScreen):
             QPushButton:hover {
                 background: #34343e;
             }
-        """
-        )
+        """)
         open_folder_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         open_folder_btn.clicked.connect(self._on_open_folder_clicked)
         layout.addWidget(open_folder_btn)
+
+        # プロジェクト削除ボタン
+        delete_project_btn = QPushButton("プロジェクトを削除")
+        delete_project_btn.setStyleSheet("""
+            QPushButton {
+                background: #3d2424;
+                color: #ff6b6b;
+                border: none;
+                border-radius: 8px;
+                font-size: 13px;
+                padding: 10px 20px;
+            }
+            QPushButton:hover {
+                background: #4d2e2e;
+            }
+        """)
+        delete_project_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        delete_project_btn.clicked.connect(self._on_delete_project_clicked)
+        layout.addWidget(delete_project_btn)
 
         return header
 
@@ -326,8 +328,8 @@ class ProjectDetailScreen(BaseScreen):
         except ProductModel.DoesNotExist:
             return
 
-        # 画像を取得（sortで並び替え）
-        images = list(product.images.order_by(ProductImageModel.sort))
+        # 画像を取得
+        images = list(product.images.order_by(ProductImageModel.name))
         col_count = self._calculate_columns()
 
         for i, image in enumerate(images):
@@ -351,10 +353,7 @@ class ProjectDetailScreen(BaseScreen):
     def _select_product(self, product_id: int) -> None:
         """商品を選択."""
         # 前の選択を解除
-        if (
-            self._selected_product_id
-            and self._selected_product_id in self._product_items
-        ):
+        if self._selected_product_id and self._selected_product_id in self._product_items:
             self._product_items[self._selected_product_id].set_selected(False)
 
         # 新しい選択
@@ -411,6 +410,49 @@ class ProjectDetailScreen(BaseScreen):
         if folder_path.exists():
             # macOSでFinderを開く
             subprocess.run(["open", str(folder_path)])
+
+    def _on_delete_project_clicked(self) -> None:
+        """プロジェクト削除ボタンクリック."""
+        if not self._project:
+            return
+
+        # 確認ダイアログ
+        reply = QMessageBox.question(
+            self,
+            "確認",
+            f"プロジェクト「{self._project.name}」を削除しますか？\n"
+            "すべての商品画像とデータが削除されます。\n"
+            "この操作は取り消せません。",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+
+        if reply == QMessageBox.StandardButton.Yes:
+            self._delete_project()
+
+    def _delete_project(self) -> None:
+        """プロジェクトを削除."""
+        import shutil
+        from threading import Thread
+
+        project_id = self._project.id
+        project_dir = self._project.project_dir_path
+
+        # DB削除は同期的に実行（UIの即時反映のため）
+        ProjectModel.delete_by_id(project_id)
+
+        # ファイル削除はバックグラウンドで実行
+        def delete_files_in_background():
+            if project_dir:
+                dir_path = Path(project_dir)
+                if dir_path.exists():
+                    shutil.rmtree(dir_path)
+
+        thread = Thread(target=delete_files_in_background, daemon=True)
+        thread.start()
+
+        # ダッシュボードに戻る
+        self.project_deleted.emit()
 
     def _on_image_clicked(self, image_id: int) -> None:
         """画像カードクリック."""
