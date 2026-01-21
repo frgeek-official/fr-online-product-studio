@@ -9,13 +9,13 @@ from PySide6.QtWidgets import QMainWindow, QMessageBox, QStackedWidget, QVBoxLay
 
 from .components.header import AppHeader
 from .db.database import initialize_database
+from .db.models import ProductImageModel, ProductModel
 from .di.container import register_image_processing_services
 from .screens.create_project import CreateProjectScreen
 from .screens.dashboard import DashboardScreen
 from .screens.image_editor import ImageEditorScreen
 from .screens.loading import LoadingScreen
 from .screens.project_detail import ProjectDetailScreen
-from .db.models import ProductImageModel, ProductModel
 from .services.navigation import NavigationService, Screen
 from .workers.project_creation import ProjectCreationWorker
 
@@ -206,7 +206,23 @@ class FrgeekStudioApp(QMainWindow):
 
     def _on_image_editor_back(self) -> None:
         """画像編集画面から戻る時の処理."""
-        self._nav.go_back()
+        # 現在の商品からプロジェクトIDを取得
+        image_editor = self._nav.get_screen(Screen.IMAGE_EDITOR)
+        product_id = image_editor._current_product_id
+        if product_id:
+            try:
+                product = ProductModel.get_by_id(product_id)
+                project_id = product.project.id
+                self._nav.navigate_to(
+                    Screen.PROJECT_DETAIL,
+                    params={"project_id": project_id},
+                    clear_history=True,
+                )
+                return
+            except ProductModel.DoesNotExist:
+                pass
+        # フォールバック
+        self._nav.navigate_to(Screen.DASHBOARD, clear_history=True)
 
     def _on_prev_product_requested(self) -> None:
         """前の商品へ移動."""
