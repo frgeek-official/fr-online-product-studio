@@ -11,8 +11,8 @@ from PySide6.QtCore import Signal
 
 # infrastructure層からimport
 from fr_studio.application.image_view_classifier import ViewType
-from fr_studio.infrastructure.google_sheets_client import GoogleSheetsClient, SheetItem
 from fr_studio.infrastructure.birefnet_remover import BiRefNetRemover
+from fr_studio.infrastructure.google_sheets_client import GoogleSheetsClient, SheetItem
 from fr_studio.infrastructure.pillow_centerer import PillowCenterer
 from fr_studio.infrastructure.pillow_edge_refiner import PillowEdgeRefiner
 from fr_studio.infrastructure.pillow_shadow_adder import PillowShadowAdder
@@ -213,25 +213,33 @@ class ProjectCreationWorker(BaseWorker):
             removed = self._remover.remove_background(image)
             removed.save(background_removed_path)
 
-            # 2. 中央配置
-            centered = self._centerer.center_image(removed)
-            centered.save(centered_path)
-
-            # 3. マスク生成（コントラスト編集用）
+            # 2. マスク生成（センタリング前の画像から）
             # アルファチャンネルから商品マスクを取得
-            product_mask = centered.split()[3]
+            product_mask = removed.split()[3]
             product_mask.save(product_mask_path)
 
             # 背景マスクは商品マスクの反転
             background_mask = ImageOps.invert(product_mask)
             background_mask.save(background_mask_path)
 
-            # 4. エッジ処理 → 影追加 → 最終出力
+            # 3. センタリングパラメータ計算（マスクのbboxから）
+            bbox = product_mask.getbbox()
+            center_content_x = bbox[0] if bbox else 0
+            center_content_y = bbox[1] if bbox else 0
+            center_content_w = bbox[2] - bbox[0] if bbox else 0
+            center_content_h = bbox[3] - bbox[1] if bbox else 0
+
+            # 4. 中央配置
+            centered = self._centerer.center_image(removed)
+            centered.save(centered_path)
+
+            # 5. エッジ処理 → 影追加 → 最終出力
             refined = self._edge_refiner.refine(centered)
             final = self._shadow_adder.add_shadow(refined)
             final.save(filepath)
 
             is_background_removed = True
+            is_centered = True
         else:
             # front/back以外は元画像をそのままコピー
             shutil.copy(original_path, filepath)
@@ -241,12 +249,21 @@ class ProjectCreationWorker(BaseWorker):
             centered_path = None
             product_mask_path = None
             background_mask_path = None
+            
+            # センタリングパラメータは0
+            center_content_x = 0
+            center_content_y = 0
+            center_content_w = 0
+            center_content_h = 0
+            
+            is_centered = False
 
         # DB登録
         ProductImageModel.create(
             name=original_path.name,
             product=product,
             is_background_removed=is_background_removed,
+            is_centered=is_centered,
             is_white_bg=False,  # TODO: 背景分類で判定
             file_type=file_type,
             sort=sort_index,
@@ -260,4 +277,8 @@ class ProjectCreationWorker(BaseWorker):
             background_mask_filepath=(
                 str(background_mask_path) if background_mask_path else None
             ),
+            center_content_x=center_content_x,
+            center_content_y=center_content_y,
+            center_content_w=center_content_w,
+            center_content_h=center_content_h,
         )

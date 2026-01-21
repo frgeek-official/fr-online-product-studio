@@ -215,6 +215,19 @@ class ThumbnailItem(QFrame):
     def image_id(self) -> int:
         return self._image_id
 
+    def update_thumbnail(self, filepath: str) -> None:
+        """サムネイル画像を更新."""
+        if filepath and Path(filepath).exists():
+            pixmap = QPixmap(filepath)
+            if not pixmap.isNull():
+                scaled = pixmap.scaled(
+                    160,
+                    80,
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation,
+                )
+                self._thumbnail.setPixmap(scaled)
+
 
 class ImageCanvas(QGraphicsView):
     """ズーム・パン可能な画像キャンバス."""
@@ -332,14 +345,11 @@ class ImageEditorScreen(BaseScreen):
         self._shadow_value: int = 45  # 0-100
         self._contrast_whole: int = 0  # -100 to +100
         self._contrast_product: int = 0  # -100 to +100
-        self._contrast_bg: int = 0  # -100 to +100
 
-        # 画像データ
-        self._original_image: Image.Image | None = None
-        self._bg_removed_image: Image.Image | None = None  # 背景除去済み（センタリングなし）
-        self._centered_image: Image.Image | None = None  # 背景除去+センタリング済み
-        self._product_mask: Image.Image | None = None
-        self._bg_mask: Image.Image | None = None
+        # 画像データ（新設計）
+        self._original_image: Image.Image | None = None  # 元画像（不変）
+        self._product_mask: Image.Image | None = None  # 商品マスク
+        self._bg_mask: Image.Image | None = None  # 背景マスク
 
         # サービス
         self._bg_remover = inject(BiRefNetRemover)
@@ -820,14 +830,6 @@ class ImageEditorScreen(BaseScreen):
         self._contrast_product_label = product_slider["value_label"]
         layout.addLayout(product_slider["layout"])
 
-        # 背景コントラストスライダー
-        bg_slider = self._create_slider_row(
-            "背景", -100, 100, 0, self._on_contrast_bg_changed, show_sign=True
-        )
-        self._contrast_bg_slider = bg_slider["slider"]
-        self._contrast_bg_label = bg_slider["value_label"]
-        layout.addLayout(bg_slider["layout"])
-
         return section
 
     def _create_slider_row(
@@ -977,21 +979,34 @@ class ImageEditorScreen(BaseScreen):
         """背景除去トグル変更."""
         self._bg_removal_enabled = state == Qt.CheckState.Checked.value
 
-        # ONにしたときに未処理ならローディング表示
-        if self._bg_removal_enabled:
-            if self._image_model and not self._image_model.is_background_removed:
-                self._show_loading()
+        # ONにしたときにマスクがなければローディング表示
+        if self._bg_removal_enabled and not self._product_mask:
+            self._show_loading()
+
+        # センタリングと商品/背景コントラストの有効/無効を切り替え
+        self._update_controls_enabled_state()
 
         self._schedule_preview_update()
+
+    def _update_controls_enabled_state(self) -> None:
+        """背景除去の状態に応じてコントロールの有効/無効を切り替え."""
+        bg_enabled = self._bg_removal_enabled
+
+        # 背景除去OFFの場合、以下を無効化
+        # - 中央寄せトグル
+        # - エッジ加工スライダー
+        # - 影濃度スライダー
+        # - 商品コントラストスライダー
+        # - 背景コントラストスライダー
+        self._center_toggle.setEnabled(bg_enabled)
+        self._edge_slider.setEnabled(bg_enabled)
+        self._shadow_slider.setEnabled(bg_enabled)
+        self._contrast_product_slider.setEnabled(bg_enabled)
+        # 対応するラベルがあれば色を変更（スライダー行のラベルは_create_slider_row内で作成）
 
     def _on_center_toggle_changed(self, state: int) -> None:
         """中央寄せトグル変更."""
         self._centering_enabled = state == Qt.CheckState.Checked.value
-
-        # 背景除去がONの場合のみローディング表示
-        if self._bg_removal_enabled:
-            self._show_loading()
-
         self._schedule_preview_update()
 
     def _on_edge_changed(self, value: int) -> None:
@@ -1016,12 +1031,6 @@ class ImageEditorScreen(BaseScreen):
         """商品コントラストスライダー変更."""
         self._contrast_product = value
         self._contrast_product_label.setText(f"+{value}" if value >= 0 else str(value))
-        self._schedule_preview_update()
-
-    def _on_contrast_bg_changed(self, value: int) -> None:
-        """背景コントラストスライダー変更."""
-        self._contrast_bg = value
-        self._contrast_bg_label.setText(f"+{value}" if value >= 0 else str(value))
         self._schedule_preview_update()
 
     def _schedule_preview_update(self) -> None:
@@ -1157,6 +1166,9 @@ class ImageEditorScreen(BaseScreen):
         # 画像を読み込み
         self._load_image_files()
 
+        # コントロールの有効/無効状態を更新
+        self._update_controls_enabled_state()
+
         # プレビューを更新
         self._update_preview()
 
@@ -1167,22 +1179,34 @@ class ImageEditorScreen(BaseScreen):
 
         # エッジ: 0-10 → 0-100
         edge_ui = self._image_model.edge_threshold * 10
+        self._edge_value = edge_ui
         self._edge_slider.setValue(edge_ui)
 
         # 影: 0.0-1.0 → 0-100
         shadow_ui = int(self._image_model.shadow_threshold * 100)
+        self._shadow_value = shadow_ui
         self._shadow_slider.setValue(shadow_ui)
 
         # コントラスト: そのまま
+        self._contrast_whole = self._image_model.whole_contrast
         self._contrast_whole_slider.setValue(self._image_model.whole_contrast)
+        self._contrast_product = self._image_model.product_contrast
         self._contrast_product_slider.setValue(self._image_model.product_contrast)
-        self._contrast_bg_slider.setValue(self._image_model.background_contrast)
 
         # 背景除去
+        self._bg_removal_enabled = self._image_model.is_background_removed
         self._bg_toggle.setChecked(self._image_model.is_background_removed)
 
-        # 中央寄せ
-        self._center_toggle.setChecked(self._image_model.is_centered)
+        # 中央寄せ（マスクがない場合は無効化）
+        has_mask = bool(self._image_model.product_mask_filepath)
+        if has_mask:
+            self._centering_enabled = self._image_model.is_centered
+            self._center_toggle.setChecked(self._image_model.is_centered)
+            self._center_toggle.setEnabled(True)
+        else:
+            self._centering_enabled = False
+            self._center_toggle.setChecked(False)
+            self._center_toggle.setEnabled(False)
 
     def _load_image_files(self) -> None:
         """画像ファイルを読み込む."""
@@ -1191,8 +1215,6 @@ class ImageEditorScreen(BaseScreen):
 
         # キャッシュをリセット
         self._original_image = None
-        self._bg_removed_image = None
-        self._centered_image = None
         self._product_mask = None
         self._bg_mask = None
 
@@ -1203,22 +1225,6 @@ class ImageEditorScreen(BaseScreen):
                 self._original_image = Image.open(path)
                 if self._original_image.mode != "RGBA":
                     self._original_image = self._original_image.convert("RGBA")
-
-        # 背景除去済み画像（センタリングなし）
-        if self._image_model.background_removed_filepath:
-            path = Path(self._image_model.background_removed_filepath)
-            if path.exists():
-                self._bg_removed_image = Image.open(path)
-                if self._bg_removed_image.mode != "RGBA":
-                    self._bg_removed_image = self._bg_removed_image.convert("RGBA")
-
-        # 中央寄せ済み画像（背景除去済み）
-        if self._image_model.centered_filepath:
-            path = Path(self._image_model.centered_filepath)
-            if path.exists():
-                self._centered_image = Image.open(path)
-                if self._centered_image.mode != "RGBA":
-                    self._centered_image = self._centered_image.convert("RGBA")
 
         # 商品マスク
         if self._image_model.product_mask_filepath:
@@ -1283,7 +1289,8 @@ class ImageEditorScreen(BaseScreen):
 
     def _select_image(self, image_id: int) -> None:
         """画像を選択."""
-        # 現在の画像のパラメータを保存
+        # 現在の画像を保存（切り替え前）
+        self._save_final_image()
         self._save_parameters()
 
         # 古い選択を解除
@@ -1299,38 +1306,27 @@ class ImageEditorScreen(BaseScreen):
 
     def _update_preview(self) -> None:
         """プレビュー画像を更新."""
-        if not self._image_model:
+        if not self._image_model or not self._original_image:
             return
 
-        # 処理する画像を決定
+        # ベース画像
+        image = self._original_image.copy()
+
+        # 背景除去がONの場合
         if self._bg_removal_enabled:
+            # マスクがなければ生成
+            if not self._product_mask:
+                self._show_loading()
+                if not self._perform_background_removal():
+                    self._hide_loading()
+                    return
+
+            # マスクを適用して背景を透過
+            image = self._apply_mask_to_image(image)
+
+            # 中央寄せがONの場合
             if self._centering_enabled:
-                # 背景除去 + 中央寄せ
-                if self._image_model.is_background_removed and self._centered_image:
-                    # 既存の中央寄せ済み画像を使用
-                    image = self._centered_image.copy()
-                elif self._original_image:
-                    # 背景除去+中央寄せを実行
-                    bg_removed = self._perform_background_removal()
-                    if bg_removed is None:
-                        return
-                    image = bg_removed
-                else:
-                    return
-            else:
-                # 背景除去のみ（中央寄せなし）
-                if self._image_model.is_background_removed and self._bg_removed_image:
-                    # 既存の背景除去済み画像を使用
-                    image = self._bg_removed_image.copy()
-                elif self._original_image:
-                    # 背景除去を実行（中央寄せなし）
-                    bg_removed = self._perform_background_removal()
-                    if bg_removed is None:
-                        return
-                    # 中央寄せをスキップ
-                    image = self._bg_removed_image.copy() if self._bg_removed_image else bg_removed
-                else:
-                    return
+                image = self._centerer.center_image(image)
 
             # エッジ加工
             erode = max(0, self._edge_value // 20)  # 0-100 → 0-5
@@ -1342,35 +1338,26 @@ class ImageEditorScreen(BaseScreen):
             shadow_adder = PillowShadowAdder(shadow_opacity=shadow_opacity)
             image = shadow_adder.add_shadow(image)
 
-        elif self._original_image:
-            # 背景除去なし - 元画像をそのまま使用
-            image = self._original_image.copy()
-        else:
-            return
+        # 商品コントラスト調整（マスクがある場合のみ適用可能）
+        if self._bg_removal_enabled and self._product_mask and self._contrast_product != 0:
+            # センタリング適用時はセンタリング後の画像からマスクを取得
+            if self._centering_enabled:
+                centered_product_mask = image.getchannel("A")
+            else:
+                centered_product_mask = self._product_mask
 
-        # コントラスト調整（マスクベース）
-        if self._product_mask and self._bg_mask:
-            # 商品部分のコントラスト
-            if self._contrast_product != 0:
-                product_params = ToneParameters(
-                    brightness=self._contrast_product * 0.5,
-                    contrast=1.0 + self._contrast_product / 200.0,
-                    gamma=1.0,
+            product_params = ToneParameters(
+                brightness=self._contrast_product * 0.5,
+                contrast=1.0 + self._contrast_product / 200.0,
+                gamma=1.0,
+            )
+            product_adjusted = self._tone_adjuster.adjust(image, product_params)
+            # マスクサイズを調整
+            if centered_product_mask.size != image.size:
+                centered_product_mask = centered_product_mask.resize(
+                    image.size, Image.Resampling.LANCZOS
                 )
-                product_adjusted = self._tone_adjuster.adjust(image, product_params)
-                # マスクで合成（商品マスクがある部分のみ適用）
-                image = Image.composite(product_adjusted, image, self._product_mask)
-
-            # 背景部分のコントラスト
-            if self._contrast_bg != 0:
-                bg_params = ToneParameters(
-                    brightness=self._contrast_bg * 0.5,
-                    contrast=1.0 + self._contrast_bg / 200.0,
-                    gamma=1.0,
-                )
-                bg_adjusted = self._tone_adjuster.adjust(image, bg_params)
-                # マスクで合成（背景マスクがある部分のみ適用）
-                image = Image.composite(bg_adjusted, image, self._bg_mask)
+            image = Image.composite(product_adjusted, image, centered_product_mask)
 
         # 全体のコントラスト
         if self._contrast_whole != 0:
@@ -1387,48 +1374,72 @@ class ImageEditorScreen(BaseScreen):
         # ローディングを非表示
         self._hide_loading()
 
-    def _perform_background_removal(self) -> Image.Image | None:
-        """背景除去を実行し、結果を保存."""
+    def _perform_background_removal(self) -> bool:
+        """背景除去を実行し、マスクを生成・保存.
+        
+        Returns:
+            成功した場合True
+        """
         if not self._original_image or not self._image_model:
-            return None
+            return False
 
-        # 1. 背景除去
+        # 1. 背景除去（透過画像を取得）
         removed = self._bg_remover.remove_background(self._original_image)
 
-        # 2. 中央配置
-        centered = self._centerer.center_image(removed)
-        self._centered_image = centered
-
-        # 3. マスク生成
-        alpha = centered.split()[3]
+        # 2. マスク生成
+        alpha = removed.split()[3]
         self._product_mask = alpha
         self._bg_mask = ImageOps.invert(alpha)
 
-        # 4. ファイル保存
+        # 3. センタリングパラメータを計算してDBに保存
+        bbox = alpha.getbbox()
+        if bbox:
+            self._image_model.center_content_x = bbox[0]
+            self._image_model.center_content_y = bbox[1]
+            self._image_model.center_content_w = bbox[2] - bbox[0]
+            self._image_model.center_content_h = bbox[3] - bbox[1]
+
+        # 4. マスクファイル保存
         product_dir = Path(self._image_model.product.product_dir_path)
         processed_dir = product_dir / "processed"
         processed_dir.mkdir(parents=True, exist_ok=True)
 
         filename = Path(self._image_model.original_filepath).stem
-        bg_removed_path = processed_dir / f"{filename}_bg_removed.png"
-        centered_path = processed_dir / f"{filename}_centered.png"
         product_mask_path = processed_dir / f"{filename}_product_mask.png"
         bg_mask_path = processed_dir / f"{filename}_bg_mask.png"
 
-        removed.save(bg_removed_path)
-        centered.save(centered_path)
         self._product_mask.save(product_mask_path)
         self._bg_mask.save(bg_mask_path)
 
-        # 5. DB更新
-        self._image_model.background_removed_filepath = str(bg_removed_path)
-        self._image_model.centered_filepath = str(centered_path)
+        # 5. DB更新（マスクパスとパラメータのみ）
         self._image_model.product_mask_filepath = str(product_mask_path)
         self._image_model.background_mask_filepath = str(bg_mask_path)
         self._image_model.is_background_removed = True
         self._image_model.save()
 
-        return centered
+        return True
+
+    def _apply_mask_to_image(self, image: Image.Image) -> Image.Image:
+        """マスクを適用して背景を透過.
+        
+        Args:
+            image: 入力画像（RGBA）
+            
+        Returns:
+            背景が透過されたRGBA画像
+        """
+        if not self._product_mask:
+            return image
+
+        # 画像サイズにマスクをリサイズ
+        mask = self._product_mask
+        if mask.size != image.size:
+            mask = mask.resize(image.size, Image.Resampling.LANCZOS)
+
+        # マスクをアルファチャンネルとして適用
+        result = image.copy()
+        result.putalpha(mask)
+        return result
 
     def _display_preview(self, image: Image.Image) -> None:
         """画像をプレビューラベルに表示."""
@@ -1455,7 +1466,10 @@ class ImageEditorScreen(BaseScreen):
         # タイマーを停止
         self._preview_timer.stop()
 
-        # 変更を保存
+        # 最終画像を保存
+        self._save_final_image()
+
+        # パラメータを保存
         self._save_parameters()
 
     def _save_parameters(self) -> None:
@@ -1468,10 +1482,99 @@ class ImageEditorScreen(BaseScreen):
         self._image_model.shadow_threshold = self._shadow_value / 100.0  # 0-100 → 0.0-1.0
         self._image_model.whole_contrast = self._contrast_whole
         self._image_model.product_contrast = self._contrast_product
-        self._image_model.background_contrast = self._contrast_bg
         self._image_model.is_background_removed = self._bg_removal_enabled
         self._image_model.is_centered = self._centering_enabled
         self._image_model.save()
+
+    def _generate_final_image(self) -> Image.Image | None:
+        """全効果を適用した最終画像を生成."""
+        if not self._original_image:
+            return None
+
+        # ベース画像
+        image = self._original_image.copy()
+
+        # 背景除去がONの場合
+        if self._bg_removal_enabled and self._product_mask:
+            # マスクを適用して背景を透過
+            image = self._apply_mask_to_image(image)
+
+            # 中央寄せがONの場合
+            if self._centering_enabled:
+                image = self._centerer.center_image(image)
+
+            # エッジ処理
+            erode = max(0, self._edge_value // 20)
+            feather = self._edge_value / 100.0
+            image = self._edge_refiner.refine(image, erode, feather)
+
+            # 影追加
+            if self._shadow_value > 0:
+                shadow_opacity = int(self._shadow_value * 2.55)
+                shadow_adder = PillowShadowAdder(shadow_opacity=shadow_opacity)
+                image = shadow_adder.add_shadow(image)
+
+            # 商品コントラスト調整
+            if self._product_mask and self._contrast_product != 0:
+                # センタリング適用時はセンタリング後の画像からマスクを取得
+                if self._centering_enabled:
+                    centered_product_mask = image.getchannel("A")
+                else:
+                    centered_product_mask = self._product_mask
+
+                product_params = ToneParameters(
+                    brightness=self._contrast_product * 0.5,
+                    contrast=1.0 + self._contrast_product / 200.0,
+                    gamma=1.0,
+                )
+                product_adjusted = self._tone_adjuster.adjust(image, product_params)
+                if centered_product_mask.size != image.size:
+                    centered_product_mask = centered_product_mask.resize(
+                        image.size, Image.Resampling.LANCZOS
+                    )
+                image = Image.composite(product_adjusted, image, centered_product_mask)
+
+        # 全体のコントラスト
+        if self._contrast_whole != 0:
+            params = ToneParameters(
+                brightness=self._contrast_whole * 0.5,
+                contrast=1.0 + self._contrast_whole / 200.0,
+                gamma=1.0,
+            )
+            image = self._tone_adjuster.adjust(image, params)
+
+        return image
+
+    def _save_final_image(self) -> None:
+        """最終画像をファイルに保存."""
+        if not self._image_model:
+            return
+
+        # 最終画像を生成
+        final_image = self._generate_final_image()
+        if final_image is None:
+            return
+
+        # ファイルパスを決定
+        product_dir = Path(self._image_model.product.product_dir_path)
+        processed_dir = product_dir / "processed"
+        processed_dir.mkdir(parents=True, exist_ok=True)
+
+        filename = Path(self._image_model.original_filepath).stem
+        final_path = processed_dir / f"{filename}_current.png"
+
+        # 保存
+        final_image.save(final_path)
+
+        # DB更新
+        self._image_model.filepath = str(final_path)
+        self._image_model.save()
+
+        # サムネイル更新
+        if self._image_model.id in self._thumbnail_items:
+            self._thumbnail_items[self._image_model.id].update_thumbnail(
+                str(final_path)
+            )
 
     def _on_back_clicked(self) -> None:
         """戻るボタンクリック."""
