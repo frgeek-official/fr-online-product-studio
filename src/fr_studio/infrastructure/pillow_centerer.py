@@ -15,6 +15,7 @@ class PillowCenterer:
         image: Image.Image,
         canvas_size: tuple[int, int] = (1200, 1200),
         margin_ratio: float = 0.05,
+        bbox: tuple[int, int, int, int] | None = None,
     ) -> Image.Image:
         """画像を中央配置する.
 
@@ -22,6 +23,7 @@ class PillowCenterer:
             image: 入力画像（RGBA、背景透過済み）
             canvas_size: 出力キャンバスサイズ (width, height)
             margin_ratio: マージン比率（0.05 = 5%、4辺均等）
+            bbox: コンテンツのバウンディングボックス（Noneの場合は自動計算）
 
         Returns:
             指定サイズのキャンバスに中央配置されたRGBA画像
@@ -29,7 +31,8 @@ class PillowCenterer:
         if image.mode != "RGBA":
             image = image.convert("RGBA")
 
-        bbox = self._get_content_bbox(image)
+        if bbox is None:
+            bbox = self._get_content_bbox(image)
         if bbox is None:
             return Image.new("RGBA", canvas_size, (255, 255, 255, 0))
 
