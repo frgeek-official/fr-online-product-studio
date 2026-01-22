@@ -39,26 +39,7 @@ def _format_time_ago(dt: datetime) -> str:
     if minutes > 0:
         return f"{minutes} min{'s' if minutes > 1 else ''} ago"
 
-    return "just now"
-
-
-def _format_file_size(size_bytes: int) -> str:
-    """ファイルサイズをフォーマット."""
-    if size_bytes < 1024:
-        return f"{size_bytes}B"
-    elif size_bytes < 1024 * 1024:
-        return f"{size_bytes / 1024:.1f}KB"
-    else:
-        return f"{size_bytes / (1024 * 1024):.1f}MB"
-
-
-def _get_image_dimensions(filepath: str) -> tuple[int, int] | None:
-    """画像の寸法を取得."""
-    try:
-        with Image.open(filepath) as img:
-            return img.size
-    except Exception:
-        return None
+    return "ちょうど今"
 
 
 class ImageCard(QFrame):
@@ -127,11 +108,13 @@ class ImageCard(QFrame):
         # サムネイル画像
         self._thumbnail = QLabel()
         self._thumbnail.setFixedSize(self.CARD_WIDTH, 180)
-        self._thumbnail.setStyleSheet("""
+        self._thumbnail.setStyleSheet(
+            """
             background: #1a1a24;
             border-top-left-radius: 12px;
             border-top-right-radius: 12px;
-        """)
+        """
+        )
         self._thumbnail.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._thumbnail.setScaledContents(False)
 
@@ -152,11 +135,13 @@ class ImageCard(QFrame):
         # オーバーレイ（ホバー時に表示）
         self._overlay = QWidget(self._thumb_container)
         self._overlay.setGeometry(0, 0, self.CARD_WIDTH, 180)
-        self._overlay.setStyleSheet("""
+        self._overlay.setStyleSheet(
+            """
             background: rgba(0, 0, 0, 0.6);
             border-top-left-radius: 12px;
             border-top-right-radius: 12px;
-        """)
+        """
+        )
         self._overlay.hide()
 
         overlay_layout = QHBoxLayout(self._overlay)
@@ -166,7 +151,8 @@ class ImageCard(QFrame):
         # 編集ボタン
         self._edit_btn = QPushButton("編集")
         self._edit_btn.setFixedSize(60, 32)
-        self._edit_btn.setStyleSheet("""
+        self._edit_btn.setStyleSheet(
+            """
             QPushButton {
                 background: #00c2a8;
                 color: #000;
@@ -178,7 +164,8 @@ class ImageCard(QFrame):
             QPushButton:hover {
                 background: #00d4b8;
             }
-        """)
+        """
+        )
         self._edit_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self._edit_btn.clicked.connect(self._on_edit_clicked)
         overlay_layout.addWidget(self._edit_btn)
@@ -186,7 +173,8 @@ class ImageCard(QFrame):
         # 削除ボタン
         self._delete_btn = QPushButton("削除")
         self._delete_btn.setFixedSize(60, 32)
-        self._delete_btn.setStyleSheet("""
+        self._delete_btn.setStyleSheet(
+            """
             QPushButton {
                 background: #ff4444;
                 color: #fff;
@@ -198,7 +186,8 @@ class ImageCard(QFrame):
             QPushButton:hover {
                 background: #ff5555;
             }
-        """)
+        """
+        )
         self._delete_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self._delete_btn.clicked.connect(self._on_delete_clicked)
         overlay_layout.addWidget(self._delete_btn)
@@ -206,13 +195,15 @@ class ImageCard(QFrame):
         # 選択チェックマーク
         self._checkmark = QLabel()
         self._checkmark.setFixedSize(28, 28)
-        self._checkmark.setStyleSheet("""
+        self._checkmark.setStyleSheet(
+            """
             background: #00c2a8;
             border-radius: 14px;
             color: #000;
             font-weight: bold;
             font-size: 16px;
-        """)
+        """
+        )
         self._checkmark.setText("✓")
         self._checkmark.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._checkmark.move(self.CARD_WIDTH - 36, 8)
@@ -230,37 +221,23 @@ class ImageCard(QFrame):
 
         # ファイル名
         name_label = QLabel(name)
-        name_label.setStyleSheet("""
+        name_label.setStyleSheet(
+            """
             font-size: 12px;
             font-weight: bold;
             color: #fff;
             background: transparent;
-        """)
+        """
+        )
         name_label.setWordWrap(True)
         name_label.setMaximumHeight(32)
         info_layout.addWidget(name_label)
 
-        # メタ情報（寸法・サイズ）
-        meta_text = ""
-        dims = _get_image_dimensions(filepath)
-        if dims:
-            meta_text = f"{dims[0]} x {dims[1]}"
-
-        if filepath and Path(filepath).exists():
-            file_size = Path(filepath).stat().st_size
-            size_str = _format_file_size(file_size)
-            if meta_text:
-                meta_text += f" • {size_str}"
-            else:
-                meta_text = size_str
-
-        meta_label = QLabel(meta_text)
-        meta_label.setStyleSheet("color: #666; font-size: 10px; background: transparent;")
-        info_layout.addWidget(meta_label)
-
         # 更新日時
         time_label = QLabel(_format_time_ago(updated_time))
-        time_label.setStyleSheet("color: #666; font-size: 10px; background: transparent;")
+        time_label.setStyleSheet(
+            "color: #666; font-size: 10px; background: transparent;"
+        )
         info_layout.addWidget(time_label)
 
         layout.addWidget(info_container)
@@ -268,15 +245,18 @@ class ImageCard(QFrame):
     def _update_style(self) -> None:
         """選択状態に応じてスタイルを更新."""
         if self._selected:
-            self.setStyleSheet("""
+            self.setStyleSheet(
+                """
                 ImageCard {
                     border: 2px solid #00c2a8;
                     border-radius: 12px;
                     background: #16161e;
                 }
-            """)
+            """
+            )
         else:
-            self.setStyleSheet("""
+            self.setStyleSheet(
+                """
                 ImageCard {
                     border: 1px solid #24242e;
                     border-radius: 12px;
@@ -285,7 +265,8 @@ class ImageCard(QFrame):
                 ImageCard:hover {
                     border-color: rgba(0, 194, 168, 0.5);
                 }
-            """)
+            """
+            )
 
     def enterEvent(self, event: QEnterEvent) -> None:
         """マウスが入った時."""
@@ -359,7 +340,8 @@ class AddMoreAssetsCard(QFrame):
         self.setFrameShape(QFrame.Shape.StyledPanel)
         self.setFixedSize(ImageCard.CARD_WIDTH, ImageCard.CARD_HEIGHT)
         self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        self.setStyleSheet("""
+        self.setStyleSheet(
+            """
             AddMoreAssetsCard {
                 border: 2px dashed #24242e;
                 border-radius: 12px;
@@ -369,7 +351,8 @@ class AddMoreAssetsCard(QFrame):
                 border-color: #00c2a8;
                 background: rgba(0, 194, 168, 0.05);
             }
-        """)
+        """
+        )
 
         layout = QVBoxLayout(self)
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -377,31 +360,37 @@ class AddMoreAssetsCard(QFrame):
 
         # アイコン
         icon = QLabel("+")
-        icon.setStyleSheet("""
+        icon.setStyleSheet(
+            """
             font-size: 36px;
             color: #666;
             background: transparent;
-        """)
+        """
+        )
         icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(icon)
 
         # テキスト
         title = QLabel("Add more assets")
-        title.setStyleSheet("""
+        title.setStyleSheet(
+            """
             font-size: 14px;
             font-weight: bold;
             color: #fff;
             background: transparent;
-        """)
+        """
+        )
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(title)
 
         subtitle = QLabel("Upload or drag and drop files\ndirectly")
-        subtitle.setStyleSheet("""
+        subtitle.setStyleSheet(
+            """
             font-size: 11px;
             color: #888;
             background: transparent;
-        """)
+        """
+        )
         subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(subtitle)
 
