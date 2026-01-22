@@ -16,7 +16,6 @@ class ProductImageModel(BaseModel):
         product: 所属商品
         is_background_removed: 背景除去済みか
         is_white_bg: 元画像が白背景か
-        file_type: 画像タイプ (front/back/other)
 
         編集パラメータ:
         edge_threshold: エッジ処理の強度
@@ -41,7 +40,6 @@ class ProductImageModel(BaseModel):
     # 処理状態
     is_background_removed = BooleanField(default=False)
     is_white_bg = BooleanField(default=False)
-    file_type = CharField(max_length=10, default="other")  # front, back, other
 
     # 編集パラメータ（スライダー値）
     edge_threshold = IntegerField(default=2)  # エッジ処理の強度 (0-10)

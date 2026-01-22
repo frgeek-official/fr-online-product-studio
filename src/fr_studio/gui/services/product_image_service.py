@@ -4,7 +4,6 @@ from pathlib import Path
 
 from PIL import Image, ImageOps
 
-from fr_studio.application.image_view_classifier import ViewType
 from fr_studio.application.tone_adjuster import ToneParameters
 from fr_studio.gui.db.models import ProductImageModel, ProductModel
 from fr_studio.infrastructure.birefnet_remover import BiRefNetRemover
@@ -12,7 +11,6 @@ from fr_studio.infrastructure.numpy_tone_adjuster import NumpyToneAdjuster
 from fr_studio.infrastructure.pillow_centerer import PillowCenterer
 from fr_studio.infrastructure.pillow_edge_refiner import PillowEdgeRefiner
 from fr_studio.infrastructure.pillow_shadow_adder import PillowShadowAdder
-from fr_studio.infrastructure.qwen_vl_classifier import QwenVLClassifier
 
 
 class ProductImageService:
@@ -25,7 +23,6 @@ class ProductImageService:
     def __init__(
         self,
         remover: BiRefNetRemover,
-        classifier: QwenVLClassifier,
         centerer: PillowCenterer,
         edge_refiner: PillowEdgeRefiner,
         shadow_adder: PillowShadowAdder,
@@ -35,14 +32,12 @@ class ProductImageService:
 
         Args:
             remover: 背景除去サービス
-            classifier: 画像分類サービス
             centerer: 中央配置サービス
             edge_refiner: エッジ調整サービス
             shadow_adder: 影追加サービス
             tone_adjuster: トーン調整サービス
         """
         self._remover = remover
-        self._classifier = classifier
         self._centerer = centerer
         self._edge_refiner = edge_refiner
         self._shadow_adder = shadow_adder
@@ -74,16 +69,16 @@ class ProductImageService:
         processed_dir = product_dir / "processed"
         processed_dir.mkdir(parents=True, exist_ok=True)
 
-        # 画像分類
-        view_result = self._classifier.classify(image)
-        file_type = view_result.view_type.value
+        # ファイル名昇順で3つめまでを背景除去対象とする
+        # sort_index は呼び出し側で昇順ソート後に1から付与される
+        should_remove_bg = sort_index <= 3
 
         is_background_removed = False
         center_content_x = center_content_y = center_content_w = center_content_h = 0
         product_mask_path = None
         background_mask_path = None
 
-        if view_result.view_type in (ViewType.FRONT, ViewType.BACK):
+        if should_remove_bg:
             # マスク生成
             product_mask = self._remover.generate_mask(image)
             product_mask_path = processed_dir / f"{filename}_product_mask.png"
@@ -111,7 +106,6 @@ class ProductImageService:
             is_background_removed=is_background_removed,
             is_centered=is_background_removed,
             is_white_bg=False,  # TODO: 背景分類で判定
-            file_type=file_type,
             sort=sort_index,
             original_filepath=str(image_path),
             filepath=None,  # 最終出力はexport時またはエディタ保存時に生成

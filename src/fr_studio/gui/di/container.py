@@ -141,20 +141,13 @@ def register_image_processing_services() -> None:
     from fr_studio.infrastructure.pillow_centerer import PillowCenterer
     from fr_studio.infrastructure.pillow_edge_refiner import PillowEdgeRefiner
     from fr_studio.infrastructure.pillow_shadow_adder import PillowShadowAdder
-    from fr_studio.infrastructure.qwen_vl_classifier import QwenVLClassifier
 
     container = DIContainer.get_instance()
 
     # MLモデルを使用するサービス（バックグラウンドでロード）
     birefnet = BiRefNetRemover()
-    qwen = QwenVLClassifier()
-
     container.register_instance(BiRefNetRemover, birefnet)
-    container.register_instance(QwenVLClassifier, qwen)
-
-    # バックグラウンドでモデルロードを開始
     birefnet.start_loading()
-    qwen.start_loading()
 
     # 他のサービス（即座に使用可能）
     centerer = PillowCenterer()
@@ -172,7 +165,6 @@ def register_image_processing_services() -> None:
 
     product_image_service = ProductImageService(
         remover=birefnet,
-        classifier=qwen,
         centerer=centerer,
         edge_refiner=edge_refiner,
         shadow_adder=shadow_adder,
