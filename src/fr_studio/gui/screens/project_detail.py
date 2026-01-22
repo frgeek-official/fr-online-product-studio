@@ -336,7 +336,7 @@ class ProjectDetailScreen(BaseScreen):
             row = i // col_count
             col = i % col_count
 
-            filepath = image.filepath or image.original_filepath
+            filepath = image.thumbnail_filepath or image.original_filepath
             card = ImageCard(
                 image_id=image.id,
                 name=image.name,

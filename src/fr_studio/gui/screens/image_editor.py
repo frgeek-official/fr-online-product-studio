@@ -51,6 +51,7 @@ from fr_studio.infrastructure.pillow_shadow_adder import PillowShadowAdder
 
 from ..db.models import ProductImageModel
 from ..di.container import inject
+from ..services.product_image_service import ProductImageService
 from .base import BaseScreen
 
 
@@ -378,6 +379,7 @@ class ImageEditorScreen(BaseScreen):
         self._edge_refiner = inject(PillowEdgeRefiner)
         self._shadow_adder = inject(PillowShadowAdder)
         self._tone_adjuster = inject(NumpyToneAdjuster)
+        self._product_image_service = inject(ProductImageService)
 
         # デバウンスタイマー
         self._preview_timer = QTimer()
@@ -1555,11 +1557,18 @@ class ImageEditorScreen(BaseScreen):
         # タイマーを停止
         self._preview_timer.stop()
 
-        # 最終画像を保存
-        self._save_final_image()
+        if self._image_model:
+            # パラメータを保存
+            self._save_parameters()
 
-        # パラメータを保存
-        self._save_parameters()
+            # 最終画像を保存
+            self._save_final_image()
+
+            # キャッシュ済み画像からサムネイル更新（再処理しない）
+            if self._image_model.filepath:
+                thumb_path = self._save_thumbnail_from_filepath(self._image_model)
+                self._image_model.thumbnail_filepath = str(thumb_path)
+                self._image_model.save()
 
     def _save_parameters(self) -> None:
         """パラメータをDBに保存."""
@@ -1664,6 +1673,31 @@ class ImageEditorScreen(BaseScreen):
             self._thumbnail_items[self._image_model.id].update_thumbnail(
                 str(final_path)
             )
+
+    def _save_thumbnail_from_filepath(
+        self, product_image: ProductImageModel
+    ) -> Path:
+        """filepathの画像をリサイズしてサムネイル保存.
+
+        Args:
+            product_image: 商品画像モデル
+
+        Returns:
+            サムネイル画像のパス
+        """
+        image = Image.open(product_image.filepath)
+        image.thumbnail((200, 200), Image.Resampling.LANCZOS)
+
+        processed_dir = Path(product_image.product.product_dir_path) / "processed"
+        processed_dir.mkdir(parents=True, exist_ok=True)
+        filename = Path(product_image.original_filepath).stem
+        thumb_path = processed_dir / f"{filename}_thumb.jpg"
+
+        if image.mode != "RGB":
+            image = image.convert("RGB")
+        image.save(thumb_path, "JPEG", quality=80)
+
+        return thumb_path
 
     def _on_back_clicked(self) -> None:
         """戻るボタンクリック."""

@@ -43,6 +43,102 @@ class ProductImageService:
         self._shadow_adder = shadow_adder
         self._tone_adjuster = tone_adjuster
 
+    def render_image(
+        self,
+        product_image: ProductImageModel,
+        output_size: tuple[int, int] | None = None,
+        use_original: bool = False,
+    ) -> Image:
+        """モデルのパラメータに基づいて画像を処理.
+
+        Args:
+            product_image: 商品画像モデル
+            output_size: 出力サイズ（Noneの場合は元サイズ）
+            use_original: Trueならoriginal_filepath、Falseならfilepath使用
+
+        Returns:
+            処理済み画像（RGB）
+        """
+        # 元画像読み込み（use_originalでパス選択）
+        source_path = (
+            product_image.original_filepath
+            if use_original
+            else (product_image.filepath or product_image.original_filepath)
+        )
+        original = Image.open(source_path)
+        original_width = original.width
+        if original.mode != "RGBA":
+            original = original.convert("RGBA")
+
+        # リサイズ（指定がある場合）
+        if output_size:
+            original.thumbnail(output_size, Image.Resampling.LANCZOS)
+
+        image = original.copy()
+
+        # 背景除去がONの場合
+        if product_image.is_background_removed and product_image.product_mask_filepath:
+            # マスク読み込み
+            mask = Image.open(product_image.product_mask_filepath).convert("L")
+
+            # サイズ調整
+            if output_size:
+                mask.thumbnail(output_size, Image.Resampling.LANCZOS)
+            elif mask.size != image.size:
+                mask = mask.resize(image.size, Image.Resampling.LANCZOS)
+
+            # エッジ調整
+            erode = max(0, product_image.edge_threshold // 2)
+            feather = product_image.edge_threshold / 10.0
+            refined_mask = self._edge_refiner.refine_mask(mask, erode, feather)
+
+            # マスク適用
+            image.putalpha(refined_mask)
+
+            # 中央寄せ
+            if product_image.is_centered and product_image.center_content_w > 0:
+                bbox = (
+                    product_image.center_content_x,
+                    product_image.center_content_y,
+                    product_image.center_content_x + product_image.center_content_w,
+                    product_image.center_content_y + product_image.center_content_h,
+                )
+                # リサイズ時はbboxもスケール、canvas_sizeも画像サイズに合わせる
+                if output_size:
+                    scale = image.width / original_width
+                    bbox = tuple(int(v * scale) for v in bbox)
+                    image = self._centerer.center_image(
+                        image, canvas_size=image.size, bbox=bbox
+                    )
+                else:
+                    image = self._centerer.center_image(image, bbox=bbox)
+
+            # 影追加
+            if product_image.shadow_threshold > 0:
+                shadow_opacity = int(product_image.shadow_threshold * 255)
+                shadow_mask = image.getchannel("A")
+                shadow_bg = self._shadow_adder.generate_shadow(
+                    shadow_mask, image.size, shadow_opacity
+                )
+                image = Image.alpha_composite(shadow_bg, image)
+
+        # コントラスト調整
+        if product_image.whole_contrast != 0:
+            params = ToneParameters(
+                brightness=product_image.whole_contrast * 0.5,
+                contrast=1.0 + product_image.whole_contrast / 200.0,
+                gamma=1.0,
+            )
+            image = self._tone_adjuster.adjust(image, params)
+
+        # 白背景に合成してRGB化
+        if image.mode == "RGBA":
+            white_bg = Image.new("RGBA", image.size, (255, 255, 255, 255))
+            image = Image.alpha_composite(white_bg, image)
+            image = image.convert("RGB")
+
+        return image
+
     def create_product_image(
         self,
         product: ProductModel,
@@ -117,7 +213,13 @@ class ProductImageService:
             center_content_y=center_content_y,
             center_content_w=center_content_w,
             center_content_h=center_content_h,
+            thumbnail_filepath=None,
         )
+
+        # サムネイル生成（背景除去の有無に関わらず）
+        thumb_path = self.generate_thumbnail(product_image)
+        product_image.thumbnail_filepath = str(thumb_path)
+        product_image.save()
 
         return product_image.id
 
@@ -137,58 +239,8 @@ class ProductImageService:
         """
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        # 元画像読み込み
-        original = Image.open(product_image.original_filepath)
-        if original.mode != "RGBA":
-            original = original.convert("RGBA")
-
-        image = original.copy()
-
-        # 背景除去がONの場合
-        if product_image.is_background_removed and product_image.product_mask_filepath:
-            # マスク読み込み
-            mask = Image.open(product_image.product_mask_filepath).convert("L")
-
-            # サイズ調整（必要な場合）
-            if mask.size != original.size:
-                mask = mask.resize(original.size, Image.Resampling.LANCZOS)
-
-            # エッジ調整をマスクに適用
-            erode = max(0, product_image.edge_threshold // 2)
-            feather = product_image.edge_threshold / 10.0
-            refined_mask = self._edge_refiner.refine_mask(mask, erode, feather)
-
-            # マスク適用
-            image.putalpha(refined_mask)
-
-            # 中央寄せ
-            if product_image.is_centered:
-                bbox = (
-                    product_image.center_content_x,
-                    product_image.center_content_y,
-                    product_image.center_content_x + product_image.center_content_w,
-                    product_image.center_content_y + product_image.center_content_h,
-                )
-                image = self._centerer.center_image(image, bbox=bbox)
-
-            # 影追加
-            if product_image.shadow_threshold > 0:
-                shadow_opacity = int(product_image.shadow_threshold * 255)
-                # センタリング後のアルファから影用マスクを取得
-                shadow_mask = image.getchannel("A")
-                shadow_bg = self._shadow_adder.generate_shadow(
-                    shadow_mask, image.size, shadow_opacity
-                )
-                image = Image.alpha_composite(shadow_bg, image)
-
-        # コントラスト調整
-        if product_image.whole_contrast != 0:
-            params = ToneParameters(
-                brightness=product_image.whole_contrast * 0.5,
-                contrast=1.0 + product_image.whole_contrast / 200.0,
-                gamma=1.0,
-            )
-            image = self._tone_adjuster.adjust(image, params)
+        # 共通処理メソッドを使用（エクスポートはoriginal_filepathを使用）
+        image = self.render_image(product_image, use_original=True)
 
         # ファイル名生成
         original_name = Path(product_image.original_filepath).stem
@@ -200,13 +252,29 @@ class ProductImageService:
         output_filename = f"{new_name}_{sort:04d}.jpg"
         output_path = output_dir / output_filename
 
-        # JPG 80%で保存
-        if image.mode == "RGBA":
-            # RGBAの場合は白背景に合成
-            rgb_image = Image.new("RGB", image.size, (255, 255, 255))
-            rgb_image.paste(image, mask=image.split()[3])
-            image = rgb_image
-
         image.save(output_path, "JPEG", quality=80)
 
         return output_path
+
+    def generate_thumbnail(self, product_image: ProductImageModel) -> Path:
+        """サムネイルを生成して保存.
+
+        背景除去の有無に関わらず、現在のパラメータ（コントラスト等）を反映。
+
+        Args:
+            product_image: 商品画像モデル
+
+        Returns:
+            サムネイル画像のパス
+        """
+        # 常に元画像（未処理）を使用して二重処理を防ぐ
+        image = self.render_image(product_image, output_size=(200, 200), use_original=True)
+
+        # 保存
+        processed_dir = Path(product_image.product.product_dir_path) / "processed"
+        processed_dir.mkdir(parents=True, exist_ok=True)
+        filename = Path(product_image.original_filepath).stem
+        thumb_path = processed_dir / f"{filename}_thumb.jpg"
+        image.save(thumb_path, "JPEG", quality=80)
+
+        return thumb_path

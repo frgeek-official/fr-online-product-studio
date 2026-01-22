@@ -32,6 +32,7 @@ class ProductImageModel(BaseModel):
         filepath: 編集後画像パス
         product_mask_filepath: 商品マスク画像パス（Lモード、白=商品）
         background_mask_filepath: 背景マスク画像パス（Lモード、白=背景）
+        thumbnail_filepath: サムネイル画像パス（処理済みプレビュー用）
     """
 
     name = CharField(max_length=255)
@@ -65,6 +66,7 @@ class ProductImageModel(BaseModel):
     filepath = CharField(max_length=1024, null=True)  # 最終出力
     product_mask_filepath = CharField(max_length=1024, null=True)  # 商品マスク（白=商品）
     background_mask_filepath = CharField(max_length=1024, null=True)  # 背景マスク（白=背景）
+    thumbnail_filepath = CharField(max_length=1024, null=True)  # サムネイル（処理済みプレビュー用）
 
     class Meta:
         table_name = "product_images"
