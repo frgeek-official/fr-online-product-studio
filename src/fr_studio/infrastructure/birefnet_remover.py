@@ -99,8 +99,8 @@ class BiRefNetRemover:
         """現在のデバイスを取得."""
         return self._device
 
-    def remove_background(self, image: Image.Image) -> Image.Image:
-        """背景を除去する.
+    def generate_mask(self, image: Image.Image) -> Image.Image:
+        """商品マスクを生成する.
 
         モデルがロード中の場合は、ロード完了まで待機する。
 
@@ -108,7 +108,7 @@ class BiRefNetRemover:
             image: 入力画像（RGB or RGBA）
 
         Returns:
-            背景が透過されたRGBA画像
+            商品マスク（Lモード、白=商品、黒=背景）
 
         Raises:
             RuntimeError: モデルのロードに失敗した場合
@@ -132,6 +132,24 @@ class BiRefNetRemover:
         mask = preds[0].squeeze().cpu().numpy()
         mask = Image.fromarray((mask * 255).astype(np.uint8))
         mask = mask.resize(original_size, Image.Resampling.BILINEAR)
+
+        return mask
+
+    def remove_background(self, image: Image.Image) -> Image.Image:
+        """背景を除去する.
+
+        モデルがロード中の場合は、ロード完了まで待機する。
+
+        Args:
+            image: 入力画像（RGB or RGBA）
+
+        Returns:
+            背景が透過されたRGBA画像
+
+        Raises:
+            RuntimeError: モデルのロードに失敗した場合
+        """
+        mask = self.generate_mask(image)
 
         rgba = image.convert("RGBA")
         rgba.putalpha(mask)

@@ -480,8 +480,6 @@ class ProjectDetailScreen(BaseScreen):
                 for path_attr in [
                     "filepath",
                     "original_filepath",
-                    "background_removed_filepath",
-                    "centered_filepath",
                     "product_mask_filepath",
                     "background_mask_filepath",
                 ]:

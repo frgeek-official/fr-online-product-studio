@@ -157,7 +157,25 @@ def register_image_processing_services() -> None:
     qwen.start_loading()
 
     # 他のサービス（即座に使用可能）
-    container.register_instance(PillowCenterer, PillowCenterer())
-    container.register_instance(PillowEdgeRefiner, PillowEdgeRefiner())
-    container.register_instance(PillowShadowAdder, PillowShadowAdder())
-    container.register_instance(NumpyToneAdjuster, NumpyToneAdjuster())
+    centerer = PillowCenterer()
+    edge_refiner = PillowEdgeRefiner()
+    shadow_adder = PillowShadowAdder()
+    tone_adjuster = NumpyToneAdjuster()
+
+    container.register_instance(PillowCenterer, centerer)
+    container.register_instance(PillowEdgeRefiner, edge_refiner)
+    container.register_instance(PillowShadowAdder, shadow_adder)
+    container.register_instance(NumpyToneAdjuster, tone_adjuster)
+
+    # ProductImageService（他のサービスを依存性として注入）
+    from fr_studio.gui.services.product_image_service import ProductImageService
+
+    product_image_service = ProductImageService(
+        remover=birefnet,
+        classifier=qwen,
+        centerer=centerer,
+        edge_refiner=edge_refiner,
+        shadow_adder=shadow_adder,
+        tone_adjuster=tone_adjuster,
+    )
+    container.register_instance(ProductImageService, product_image_service)

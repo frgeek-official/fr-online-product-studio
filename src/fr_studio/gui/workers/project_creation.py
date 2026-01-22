@@ -3,25 +3,18 @@
 プロジェクト作成時の画像処理を非同期で実行する。
 """
 
-import shutil
 from pathlib import Path
 
-from PIL import Image, ImageOps
+from PIL import Image
 from PySide6.QtCore import Signal
 
-# infrastructure層からimport
-from fr_studio.application.image_view_classifier import ViewType
-from fr_studio.infrastructure.birefnet_remover import BiRefNetRemover
 from fr_studio.infrastructure.google_sheets_client import GoogleSheetsClient, SheetItem
-from fr_studio.infrastructure.pillow_centerer import PillowCenterer
-from fr_studio.infrastructure.pillow_edge_refiner import PillowEdgeRefiner
-from fr_studio.infrastructure.pillow_shadow_adder import PillowShadowAdder
-from fr_studio.infrastructure.qwen_vl_classifier import QwenVLClassifier
 
 from ..db.database import get_projects_dir
-from ..db.models import ProductImageModel, ProductModel, ProjectModel
+from ..db.models import ProductModel, ProjectModel
 from ..di.container import inject
 from ..services.image_downloader import GoogleDriveDownloader
+from ..services.product_image_service import ProductImageService
 from .base import BaseWorker
 
 
@@ -54,13 +47,9 @@ class ProjectCreationWorker(BaseWorker):
         self.product_ids = product_ids
         self.exclude_ids = set(exclude_ids)
 
-        # 画像処理サービス（DIContainerから取得）
+        # サービス（DIContainerから取得）
         self._downloader = GoogleDriveDownloader()
-        self._classifier = inject(QwenVLClassifier)
-        self._remover = inject(BiRefNetRemover)
-        self._centerer = inject(PillowCenterer)
-        self._edge_refiner = inject(PillowEdgeRefiner)
-        self._shadow_adder = inject(PillowShadowAdder)
+        self._product_image_service = inject(ProductImageService)
 
         # Spreadsheetから全商品を取得してキャッシュ
         self._sheet_items: dict[int, SheetItem] = {}
@@ -191,105 +180,11 @@ class ProjectCreationWorker(BaseWorker):
             original_path: 元画像パス
             sort_index: 並び順（1から開始）
         """
-        # 画像読み込み
-        image = Image.open(original_path)
-        if image.mode != "RGB":
-            image = image.convert("RGB")
-
-        # ファイル名とパス設定
-        filename = original_path.stem
-        product_dir = Path(product.product_dir_path)
-        
-        # 出力ディレクトリ
-        processed_dir = product_dir / "processed"
-        processed_dir.mkdir(parents=True, exist_ok=True)
-
-        # 各種パス
-        filepath = processed_dir / f"{filename}.png"
-        background_removed_path = processed_dir / f"{filename}_bg_removed.png"
-        centered_path = processed_dir / f"{filename}_centered.png"
-        product_mask_path = processed_dir / f"{filename}_product_mask.png"
-        background_mask_path = processed_dir / f"{filename}_bg_mask.png"
-
-        # 画像分類
-        view_result = self._classifier.classify(image)
-        file_type = view_result.view_type.value
-
-        is_background_removed = False
-
-        if view_result.view_type in (ViewType.FRONT, ViewType.BACK):
-            # 1. 背景除去
-            removed = self._remover.remove_background(image)
-            removed.save(background_removed_path)
-
-            # 2. マスク生成（センタリング前の画像から）
-            # アルファチャンネルから商品マスクを取得
-            product_mask = removed.split()[3]
-            product_mask.save(product_mask_path)
-
-            # 背景マスクは商品マスクの反転
-            background_mask = ImageOps.invert(product_mask)
-            background_mask.save(background_mask_path)
-
-            # 3. センタリングパラメータ計算（マスクのbboxから）
-            bbox = product_mask.getbbox()
-            center_content_x = bbox[0] if bbox else 0
-            center_content_y = bbox[1] if bbox else 0
-            center_content_w = bbox[2] - bbox[0] if bbox else 0
-            center_content_h = bbox[3] - bbox[1] if bbox else 0
-
-            # 4. 中央配置
-            centered = self._centerer.center_image(removed)
-            centered.save(centered_path)
-
-            # 5. エッジ処理 → 影追加 → 最終出力
-            refined = self._edge_refiner.refine(centered)
-            final = self._shadow_adder.add_shadow(refined)
-            final.save(filepath)
-
-            is_background_removed = True
-            is_centered = True
-        else:
-            # front/back以外は元画像をそのままコピー
-            shutil.copy(original_path, filepath)
-            
-            # 中間ファイルは作成しない
-            background_removed_path = None
-            centered_path = None
-            product_mask_path = None
-            background_mask_path = None
-            
-            # センタリングパラメータは0
-            center_content_x = 0
-            center_content_y = 0
-            center_content_w = 0
-            center_content_h = 0
-            
-            is_centered = False
-
-        # DB登録
-        ProductImageModel.create(
-            name=original_path.name,
+        # ProductImageServiceを使用してマスク生成・DB登録
+        self._product_image_service.create_product_image(
             product=product,
-            is_background_removed=is_background_removed,
-            is_centered=is_centered,
-            is_white_bg=False,  # TODO: 背景分類で判定
-            file_type=file_type,
-            sort=sort_index,
-            original_filepath=str(original_path),
-            filepath=str(filepath),
-            background_removed_filepath=(
-                str(background_removed_path) if background_removed_path else None
-            ),
-            centered_filepath=str(centered_path) if centered_path else None,
-            product_mask_filepath=str(product_mask_path) if product_mask_path else None,
-            background_mask_filepath=(
-                str(background_mask_path) if background_mask_path else None
-            ),
-            center_content_x=center_content_x,
-            center_content_y=center_content_y,
-            center_content_w=center_content_w,
-            center_content_h=center_content_h,
+            image_path=original_path,
+            sort_index=sort_index,
         )
 
     def _create_resized_image(self, original_path: Path, dest_dir: Path) -> Path:

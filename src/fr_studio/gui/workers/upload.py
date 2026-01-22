@@ -3,11 +3,14 @@
 プロジェクトの全商品画像をGoogle Driveにアップロードする非同期処理。
 """
 
+import tempfile
 from pathlib import Path
 
 from PySide6.QtCore import Signal
 
 from ..db.models import ProductImageModel, ProductModel, ProjectModel
+from ..di.container import inject
+from ..services.product_image_service import ProductImageService
 from .base import BaseWorker
 
 
@@ -34,6 +37,7 @@ class UploadWorker(BaseWorker):
         super().__init__()
         self.project = project
         self._client = None
+        self._product_image_service = inject(ProductImageService)
 
     def _get_client(self):
         """Google Drive クライアントを取得（遅延初期化）."""
@@ -42,32 +46,6 @@ class UploadWorker(BaseWorker):
 
             self._client = GoogleDriveClient()
         return self._client
-
-    def _generate_upload_filename(self, image: ProductImageModel) -> str:
-        """アップロード用ファイル名を生成.
-
-        original_filepathのIMGをEDITEDに置換し、
-        ファイル名末尾に_{sort:04d}を追加する。
-
-        例: IMG_1234.jpg + sort=2 → EDITED_1234_0002.jpg
-
-        Args:
-            image: 商品画像モデル
-
-        Returns:
-            アップロード用ファイル名
-        """
-        original_path = Path(image.original_filepath)
-        stem = original_path.stem  # IMG_1234
-        ext = original_path.suffix  # .jpg
-
-        # IMGをEDITEDに置換
-        new_stem = stem.replace("IMG", "EDITED")
-
-        # sort値を4桁0埋めで追加
-        sort_suffix = f"_{image.sort:04d}"
-
-        return f"{new_stem}{sort_suffix}{ext}"
 
     def run(self) -> None:
         """アップロード処理を実行."""
@@ -85,8 +63,8 @@ class UploadWorker(BaseWorker):
                 self.finished.emit()
                 return
 
-            # 全商品の画像を収集 (product, image, path)
-            files_to_upload: list[tuple[ProductModel, ProductImageModel, Path]] = []
+            # 全商品の画像を収集 (product, image)
+            images_to_upload: list[tuple[ProductModel, ProductImageModel]] = []
             for product in products:
                 images = list(
                     ProductImageModel.select().where(
@@ -94,60 +72,81 @@ class UploadWorker(BaseWorker):
                     )
                 )
                 for image in images:
-                    if image.filepath and Path(image.filepath).exists():
-                        files_to_upload.append((product, image, Path(image.filepath)))
+                    images_to_upload.append((product, image))
 
-            if not files_to_upload:
+            if not images_to_upload:
                 self.emit_progress("アップロードする画像がありません", 100)
                 self.finished.emit()
                 return
 
-            # queued状態を通知
-            for _product, _image, file_path in files_to_upload:
-                self.file_uploaded.emit(file_path.name, "queued")
+            # 一時ディレクトリを作成
+            with tempfile.TemporaryDirectory() as temp_dir:
+                temp_path = Path(temp_dir)
 
-            self.emit_progress("Google Driveに接続中...", 5)
+                self.emit_progress("画像をエクスポート中...", 5)
 
-            # クライアント取得（認証）
-            client = self._get_client()
+                # 画像をエクスポート
+                exported_files: list[tuple[ProductModel, ProductImageModel, Path]] = []
+                total_images = len(images_to_upload)
 
-            if self.check_cancelled():
-                return
+                for i, (product, image) in enumerate(images_to_upload):
+                    if self.check_cancelled():
+                        return
 
-            # 商品IDごとのフォルダIDをキャッシュ
-            folder_cache: dict[int, str] = {}
+                    self.emit_progress(
+                        f"画像 {i + 1}/{total_images} をエクスポート中...",
+                        5 + int((i / total_images) * 20),
+                    )
 
-            # ファイルをアップロード
-            total = len(files_to_upload)
-            for i, (product, image, file_path) in enumerate(files_to_upload):
+                    # ProductImageServiceでエクスポート
+                    export_path = self._product_image_service.export_image(
+                        image, temp_path
+                    )
+                    exported_files.append((product, image, export_path))
+
+                # queued状態を通知
+                for _product, _image, file_path in exported_files:
+                    self.file_uploaded.emit(file_path.name, "queued")
+
+                self.emit_progress("Google Driveに接続中...", 30)
+
+                # クライアント取得（認証）
+                client = self._get_client()
+
                 if self.check_cancelled():
                     return
 
-                # フォルダを取得/作成（キャッシュ利用）
-                item_id = product.item_id
-                if item_id not in folder_cache:
-                    self.emit_progress(f"フォルダ '{item_id}' を準備中...", 5)
-                    folder_cache[item_id] = client.create_or_get_folder(str(item_id))
+                # 商品IDごとのフォルダIDをキャッシュ
+                folder_cache: dict[int, str] = {}
 
-                folder_id = folder_cache[item_id]
+                # ファイルをアップロード
+                total = len(exported_files)
+                for i, (product, _image, file_path) in enumerate(exported_files):
+                    if self.check_cancelled():
+                        return
 
-                # アップロード用ファイル名を生成
-                # IMG_1234.jpg + sort=2 → EDITED_1234_0002.jpg
-                upload_name = self._generate_upload_filename(image)
+                    # フォルダを取得/作成（キャッシュ利用）
+                    item_id = product.item_id
+                    if item_id not in folder_cache:
+                        self.emit_progress(f"フォルダ '{item_id}' を準備中...", 30)
+                        folder_cache[item_id] = client.create_or_get_folder(str(item_id))
 
-                self.file_uploaded.emit(upload_name, "uploading")
-                self.emit_progress(
-                    f"アップロード中: {item_id}/{upload_name}",
-                    10 + int((i / total) * 85),
-                )
+                    folder_id = folder_cache[item_id]
+                    upload_name = file_path.name
 
-                client.upload_file(file_path, folder_id, upload_name)
+                    self.file_uploaded.emit(upload_name, "uploading")
+                    self.emit_progress(
+                        f"アップロード中: {item_id}/{upload_name}",
+                        35 + int((i / total) * 60),
+                    )
 
-                self.file_uploaded.emit(upload_name, "complete")
-                self.emit_progress(
-                    f"完了: {item_id}/{upload_name}",
-                    10 + int(((i + 1) / total) * 85),
-                )
+                    client.upload_file(file_path, folder_id, upload_name)
+
+                    self.file_uploaded.emit(upload_name, "complete")
+                    self.emit_progress(
+                        f"完了: {item_id}/{upload_name}",
+                        35 + int(((i + 1) / total) * 60),
+                    )
 
             self.emit_progress("アップロード完了", 100)
             self.finished.emit()

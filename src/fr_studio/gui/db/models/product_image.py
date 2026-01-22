@@ -8,16 +8,16 @@ from .product import ProductModel
 
 class ProductImageModel(BaseModel):
     """商品画像データベースモデル.
-    
+
     画像ファイル情報と編集パラメータを保持する。
-    
+
     Attributes:
         name: 画像ファイル名
         product: 所属商品
         is_background_removed: 背景除去済みか
         is_white_bg: 元画像が白背景か
         file_type: 画像タイプ (front/back/other)
-        
+
         編集パラメータ:
         edge_threshold: エッジ処理の強度
         shadow_threshold: 影の濃度
@@ -29,12 +29,10 @@ class ProductImageModel(BaseModel):
         sort: 並び順（アップロード時のファイル名に使用）
 
         ファイルパス:
-        original_filepath: 元画像パス
+        original_filepath: 元画像パス（リサイズ済みsource画像）
         filepath: 編集後画像パス
-        background_removed_filepath: 背景除去済み画像パス
-        centered_filepath: 中央寄せ済み画像パス
-        product_mask_filepath: 商品マスク画像パス
-        background_mask_filepath: 背景マスク画像パス
+        product_mask_filepath: 商品マスク画像パス（Lモード、白=商品）
+        background_mask_filepath: 背景マスク画像パス（Lモード、白=背景）
     """
 
     name = CharField(max_length=255)
@@ -65,12 +63,10 @@ class ProductImageModel(BaseModel):
     sort = IntegerField(default=1)
 
     # ファイルパス
-    original_filepath = CharField(max_length=1024)
+    original_filepath = CharField(max_length=1024)  # リサイズ済みsource画像
     filepath = CharField(max_length=1024, null=True)  # 最終出力
-    background_removed_filepath = CharField(max_length=1024, null=True)
-    centered_filepath = CharField(max_length=1024, null=True)
-    product_mask_filepath = CharField(max_length=1024, null=True)
-    background_mask_filepath = CharField(max_length=1024, null=True)
+    product_mask_filepath = CharField(max_length=1024, null=True)  # 商品マスク（白=商品）
+    background_mask_filepath = CharField(max_length=1024, null=True)  # 背景マスク（白=背景）
 
     class Meta:
         table_name = "product_images"

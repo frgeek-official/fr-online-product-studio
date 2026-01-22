@@ -68,3 +68,37 @@ class PillowEdgeRefiner:
         result = Image.merge("RGBA", (r, g, b, feathered_alpha))
 
         return result
+
+    def refine_mask(
+        self,
+        mask: Image.Image,
+        erode_iterations: int | None = None,
+        feather_radius: float | None = None,
+    ) -> Image.Image:
+        """マスクのエッジを調整する.
+
+        Args:
+            mask: 入力マスク（Lモード）
+            erode_iterations: 収縮回数（Noneならフィールド値を使用）
+            feather_radius: フェザー半径（Noneならフィールド値を使用）
+
+        Returns:
+            調整後のマスク（Lモード）
+        """
+        # 引数があればそれを使用、なければフィールド値を使用
+        erode = erode_iterations if erode_iterations is not None else self.erode_iterations
+        feather = feather_radius if feather_radius is not None else self.feather_radius
+
+        if mask.mode != "L":
+            mask = mask.convert("L")
+
+        # 1. デフリンジ: MinFilterでマスクを収縮
+        refined = mask
+        for _ in range(erode):
+            refined = refined.filter(ImageFilter.MinFilter(3))
+
+        # 2. フェザー: ガウシアンぼかしでエッジを滑らかに
+        if feather > 0:
+            refined = refined.filter(ImageFilter.GaussianBlur(radius=feather))
+
+        return refined

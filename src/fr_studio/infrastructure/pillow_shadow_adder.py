@@ -74,3 +74,59 @@ class PillowShadowAdder:
         result = Image.alpha_composite(result, image)
 
         return result
+
+    def generate_shadow(
+        self,
+        mask: Image.Image,
+        canvas_size: tuple[int, int] | None = None,
+        shadow_opacity: int | None = None,
+    ) -> Image.Image:
+        """マスクから床影付き背景を生成する.
+
+        Args:
+            mask: 商品マスク（Lモード、白=商品）
+            canvas_size: 出力サイズ（Noneならマスクサイズ）
+            shadow_opacity: 影の不透明度（Noneならフィールド値を使用）
+
+        Returns:
+            影付き白背景（RGBA）
+        """
+        opacity = shadow_opacity if shadow_opacity is not None else self.shadow_opacity
+        size = canvas_size or mask.size
+
+        if mask.mode != "L":
+            mask = mask.convert("L")
+
+        # マスクをキャンバスサイズにリサイズ（必要な場合）
+        if mask.size != size:
+            mask = mask.resize(size, Image.Resampling.LANCZOS)
+
+        width, height = size
+
+        # パラメータ計算
+        offset_y = int(height * self.offset_ratio)
+        blur_radius = int(height * self.blur_ratio)
+
+        # 1. 影用レイヤーを作成
+        shadow = Image.new("RGBA", size, (0, 0, 0, 0))
+        shadow_fill = Image.new(
+            "RGBA",
+            size,
+            (*self.shadow_color, opacity),
+        )
+        shadow.paste(shadow_fill, mask=mask)
+
+        # 2. 影を下方向にオフセット
+        shadow_offset = Image.new("RGBA", size, (0, 0, 0, 0))
+        shadow_offset.paste(shadow, (0, offset_y))
+
+        # 3. ガウシアンぼかしを適用
+        shadow_blurred = shadow_offset.filter(
+            ImageFilter.GaussianBlur(radius=blur_radius)
+        )
+
+        # 4. 白背景に影を合成
+        result = Image.new("RGBA", size, (*self.background_color, 255))
+        result = Image.alpha_composite(result, shadow_blurred)
+
+        return result

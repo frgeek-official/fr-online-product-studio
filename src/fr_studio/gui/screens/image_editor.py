@@ -368,10 +368,15 @@ class ImageEditorScreen(BaseScreen):
         self._bg_mask: Image.Image | None = None  # 背景マスク
         self._cached_bbox: tuple[int, int, int, int] | None = None  # センタリング用bbox
 
+        # パラメータ別キャッシュ（パフォーマンス対策）
+        self._refined_mask_cache: dict[tuple[int, float], Image.Image] = {}
+        self._shadow_layer_cache: dict[int, Image.Image] = {}
+
         # サービス
         self._bg_remover = inject(BiRefNetRemover)
         self._centerer = inject(PillowCenterer)
         self._edge_refiner = inject(PillowEdgeRefiner)
+        self._shadow_adder = inject(PillowShadowAdder)
         self._tone_adjuster = inject(NumpyToneAdjuster)
 
         # デバウンスタイマー
@@ -1235,6 +1240,7 @@ class ImageEditorScreen(BaseScreen):
         self._product_mask = None
         self._bg_mask = None
         self._cached_bbox = None
+        self._clear_mask_cache()  # パラメータ別キャッシュもクリア
 
         # 元画像
         if self._image_model.original_filepath:
@@ -1353,22 +1359,33 @@ class ImageEditorScreen(BaseScreen):
                     self._hide_loading()
                     return
 
+            # エッジパラメータ計算
+            erode = max(0, self._edge_value // 20)  # 0-100 → 0-5
+            feather = self._edge_value / 100.0  # 0-100 → 0.0-1.0
+
+            # エッジ調整済みマスクを取得（キャッシュ利用）
+            refined_mask = self._get_refined_mask(erode, feather)
+
             # マスクを適用して背景を透過
-            image = self._apply_mask_to_image(image)
+            if refined_mask.size != image.size:
+                refined_mask = refined_mask.resize(image.size, Image.Resampling.LANCZOS)
+            image.putalpha(refined_mask)
 
             # 中央寄せがONの場合
             if self._centering_enabled:
                 image = self._centerer.center_image(image, bbox=self._cached_bbox)
 
-            # エッジ加工
-            erode = max(0, self._edge_value // 20)  # 0-100 → 0-5
-            feather = self._edge_value / 100.0  # 0-100 → 0.0-1.0
-            image = self._edge_refiner.refine(image, erode, feather)
-
-            # 影追加
+            # 影追加（キャッシュ利用）
             shadow_opacity = int(self._shadow_value * 2.55)  # 0-100 → 0-255
-            shadow_adder = PillowShadowAdder(shadow_opacity=shadow_opacity)
-            image = shadow_adder.add_shadow(image)
+            if shadow_opacity > 0:
+                # センタリング後のアルファから影用マスクを取得
+                shadow_mask = image.getchannel("A")
+                shadow_bg = self._get_shadow_layer(shadow_opacity, image.size, shadow_mask)
+                image = Image.alpha_composite(shadow_bg, image)
+            else:
+                # 影なしの場合は白背景に合成
+                white_bg = Image.new("RGBA", image.size, (255, 255, 255, 255))
+                image = Image.alpha_composite(white_bg, image)
 
         # 商品コントラスト調整（マスクがある場合のみ適用可能）
         if self._bg_removal_enabled and self._product_mask and self._contrast_product != 0:
@@ -1406,25 +1423,59 @@ class ImageEditorScreen(BaseScreen):
         # ローディングを非表示
         self._hide_loading()
 
+    def _get_refined_mask(self, erode: int, feather: float) -> Image.Image:
+        """パラメータに対応するrefined_maskを取得（キャッシュ利用）.
+
+        Args:
+            erode: 収縮回数
+            feather: フェザー半径
+
+        Returns:
+            調整済みマスク
+        """
+        key = (erode, feather)
+        if key not in self._refined_mask_cache:
+            self._refined_mask_cache[key] = self._edge_refiner.refine_mask(
+                self._product_mask, erode, feather
+            )
+        return self._refined_mask_cache[key]
+
+    def _get_shadow_layer(
+        self, opacity: int, size: tuple[int, int], mask: Image.Image
+    ) -> Image.Image:
+        """影レイヤーを取得.
+
+        Note:
+            センタリング後のマスクは毎回異なるため、キャッシュせず毎回生成。
+
+        Args:
+            opacity: 影の不透明度
+            size: 出力サイズ
+            mask: 影生成用マスク
+
+        Returns:
+            影付き白背景
+        """
+        return self._shadow_adder.generate_shadow(mask, size, opacity)
+
     def _perform_background_removal(self) -> bool:
         """背景除去を実行し、マスクを生成・保存.
-        
+
         Returns:
             成功した場合True
         """
         if not self._original_image or not self._image_model:
             return False
 
-        # 1. 背景除去（透過画像を取得）
-        removed = self._bg_remover.remove_background(self._original_image)
+        # 1. マスク生成（generate_maskを使用）
+        self._product_mask = self._bg_remover.generate_mask(self._original_image)
+        self._bg_mask = ImageOps.invert(self._product_mask)
 
-        # 2. マスク生成
-        alpha = removed.split()[3]
-        self._product_mask = alpha
-        self._bg_mask = ImageOps.invert(alpha)
+        # 2. キャッシュクリア（新しいマスクが生成されたため）
+        self._clear_mask_cache()
 
         # 3. センタリングパラメータを計算してDBに保存・キャッシュ
-        bbox = alpha.getbbox()
+        bbox = self._product_mask.getbbox()
         self._cached_bbox = bbox
         if bbox:
             self._image_model.center_content_x = bbox[0]
@@ -1451,6 +1502,11 @@ class ImageEditorScreen(BaseScreen):
         self._image_model.save()
 
         return True
+
+    def _clear_mask_cache(self) -> None:
+        """マスク関連キャッシュをクリア."""
+        self._refined_mask_cache.clear()
+        self._shadow_layer_cache.clear()
 
     def _apply_mask_to_image(self, image: Image.Image) -> Image.Image:
         """マスクを適用して背景を透過.
