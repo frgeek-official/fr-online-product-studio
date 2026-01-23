@@ -1467,12 +1467,9 @@ class ImageEditorScreen(BaseScreen):
 
         # 新しいサムネイルを追加
         for img_model in self._product_images:
-            # 表示用パスを決定（処理済みがあればそれ、なければ元画像）
-            display_path = img_model.filepath or img_model.original_filepath
-
             item = ThumbnailItem(
                 image_id=img_model.id,
-                filepath=display_path,
+                filepath=img_model.thumbnail_filepath,
                 name=img_model.name,
             )
             item.clicked.connect(self._on_thumbnail_clicked)
@@ -1769,14 +1766,8 @@ class ImageEditorScreen(BaseScreen):
             # パラメータを保存
             self._save_parameters()
 
-            # 最終画像を保存
+            # 最終画像を保存（サムネイル更新も含む）
             self._save_final_image()
-
-            # キャッシュ済み画像からサムネイル更新（再処理しない）
-            if self._image_model.filepath:
-                thumb_path = self._save_thumbnail_from_filepath(self._image_model)
-                self._image_model.thumbnail_filepath = str(thumb_path)
-                self._image_model.save()
 
     def _save_parameters(self) -> None:
         """パラメータをDBに保存."""
@@ -1936,10 +1927,15 @@ class ImageEditorScreen(BaseScreen):
         self._image_model.filepath = str(final_path)
         self._image_model.save()
 
-        # サムネイル更新
+        # サムネイル生成・DB更新
+        thumb_path = self._save_thumbnail_from_filepath(self._image_model)
+        self._image_model.thumbnail_filepath = str(thumb_path)
+        self._image_model.save()
+
+        # サムネイル表示更新
         if self._image_model.id in self._thumbnail_items:
             self._thumbnail_items[self._image_model.id].update_thumbnail(
-                str(final_path)
+                str(thumb_path)
             )
 
     def _save_thumbnail_from_filepath(self, product_image: ProductImageModel) -> Path:
