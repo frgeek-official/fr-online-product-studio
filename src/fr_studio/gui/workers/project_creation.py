@@ -11,7 +11,7 @@ from PySide6.QtCore import Signal
 from fr_studio.infrastructure.google_sheets_client import GoogleSheetsClient, SheetItem
 
 from ..db.database import get_projects_dir
-from ..db.models import ProductModel, ProjectModel
+from ..db.models import ProductImageModel, ProductModel, ProjectModel
 from ..di.container import inject
 from ..services.image_downloader import GoogleDriveDownloader
 from ..services.product_image_service import ProductImageService
@@ -93,10 +93,20 @@ class ProjectCreationWorker(BaseWorker):
                 if self.check_cancelled():
                     return
 
-                self.emit_progress(f"商品 {item_id} を処理中...", 5 + int((i / total) * 90))
-                self._process_product(project, item_id)
+                percent = 5 + int((i / total) * 90)
+                self._process_product(project, item_id, percent)
 
-                self.emit_progress(f"商品 {item_id} 処理完了", 5 + int(((i + 1) / total) * 90))
+            # 画像が1つも登録されなかった場合はプロジェクトを削除
+            image_count = (
+                ProductImageModel.select()
+                .join(ProductModel)
+                .where(ProductModel.project == project)
+                .count()
+            )
+            if image_count == 0:
+                project.delete_instance(recursive=True)
+                self.emit_progress("対象商品がありません。終了します。", 100)
+                return
 
             self.emit_progress("完了", 100)
             self.finished.emit(project.id)
@@ -124,21 +134,27 @@ class ProjectCreationWorker(BaseWorker):
 
         return project
 
-    def _process_product(self, project: ProjectModel, item_id: int) -> None:
+    def _process_product(
+        self, project: ProjectModel, item_id: int, percent: int
+    ) -> None:
         """商品を処理する.
 
         Args:
             project: プロジェクトモデル
             item_id: 商品ID
+            percent: 現在の進捗率
         """
+        # Spreadsheetから商品名を取得
+        sheet_item = self._sheet_items.get(item_id)
+        if not sheet_item:
+            self.emit_progress(f"商品 {item_id}: 存在しません。スキップ", percent)
+            return
+
+        caption = sheet_item.item_name
 
         # 商品ディレクトリ作成
         product_dir = Path(project.project_dir_path) / str(item_id)
         product_dir.mkdir(parents=True, exist_ok=True)
-
-        # Spreadsheetから商品名を取得
-        sheet_item = self._sheet_items.get(item_id)
-        caption = sheet_item.item_name if sheet_item else ""
 
         # 商品レコード作成
         product = ProductModel.create(
@@ -149,9 +165,11 @@ class ProjectCreationWorker(BaseWorker):
         )
 
         # 画像ダウンロード（originalsに保存）
+        self.emit_progress(f"商品 {item_id}: ダウンロード中...", percent)
         image_paths = self._downloader.download_images(item_id, product_dir)
 
         if not image_paths:
+            self.emit_progress(f"商品 {item_id}: 画像がありません。スキップ", percent)
             return
 
         # リサイズ版作成（編集用）
@@ -165,9 +183,13 @@ class ProjectCreationWorker(BaseWorker):
 
         # 各画像を処理（リサイズ版を使用、ファイル名昇順でsort値を設定）
         sorted_paths = sorted(resized_paths, key=lambda p: p.name)
+        total_images = len(sorted_paths)
         for sort_index, img_path in enumerate(sorted_paths, start=1):
             if self.check_cancelled():
                 return
+            self.emit_progress(
+                f"商品 {item_id}: 画像処理中 ({sort_index}/{total_images})...", percent
+            )
             self._process_image(product, img_path, sort_index)
 
     def _process_image(
