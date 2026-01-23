@@ -8,6 +8,8 @@ from pathlib import Path
 
 from PySide6.QtCore import Signal
 
+from fr_studio.infrastructure.google_drive_client import GoogleDriveClient
+
 from ..db.models import ProductImageModel, ProductModel, ProjectModel
 from ..di.container import inject
 from ..services.product_image_service import ProductImageService
@@ -26,7 +28,9 @@ class UploadWorker(BaseWorker):
     """
 
     finished = Signal()
-    file_uploaded = Signal(str, str)  # file_name, status ("complete", "uploading", "queued")
+    file_uploaded = Signal(
+        str, str
+    )  # file_name, status ("complete", "uploading", "queued")
 
     def __init__(self, project: ProjectModel) -> None:
         """初期化.
@@ -36,16 +40,8 @@ class UploadWorker(BaseWorker):
         """
         super().__init__()
         self.project = project
-        self._client = None
+        self._client = inject(GoogleDriveClient)
         self._product_image_service = inject(ProductImageService)
-
-    def _get_client(self):
-        """Google Drive クライアントを取得（遅延初期化）."""
-        if self._client is None:
-            from fr_studio.infrastructure.google_drive_client import GoogleDriveClient
-
-            self._client = GoogleDriveClient()
-        return self._client
 
     def run(self) -> None:
         """アップロード処理を実行."""
@@ -110,9 +106,6 @@ class UploadWorker(BaseWorker):
 
                 self.emit_progress("Google Driveに接続中...", 30)
 
-                # クライアント取得（認証）
-                client = self._get_client()
-
                 if self.check_cancelled():
                     return
 
@@ -129,7 +122,9 @@ class UploadWorker(BaseWorker):
                     item_id = product.item_id
                     if item_id not in folder_cache:
                         self.emit_progress(f"フォルダ '{item_id}' を準備中...", 30)
-                        folder_cache[item_id] = client.create_or_get_folder(str(item_id))
+                        folder_cache[item_id] = self._client.create_or_get_folder(
+                            str(item_id)
+                        )
 
                     folder_id = folder_cache[item_id]
                     upload_name = file_path.name
@@ -140,7 +135,7 @@ class UploadWorker(BaseWorker):
                         35 + int((i / total) * 60),
                     )
 
-                    client.upload_file(file_path, folder_id, upload_name)
+                    self._client.upload_file(file_path, folder_id, upload_name)
 
                     self.file_uploaded.emit(upload_name, "complete")
                     self.emit_progress(

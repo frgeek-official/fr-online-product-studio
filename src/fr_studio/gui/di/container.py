@@ -171,3 +171,10 @@ def register_image_processing_services() -> None:
         tone_adjuster=tone_adjuster,
     )
     container.register_instance(ProductImageService, product_image_service)
+
+    # Google関連サービス
+    from fr_studio.gui.services.image_downloader import GoogleDriveDownloader
+    from fr_studio.infrastructure.google_sheets_client import GoogleSheetsClient
+
+    container.register_instance(GoogleDriveDownloader, GoogleDriveDownloader())
+    container.register_instance(GoogleSheetsClient, GoogleSheetsClient())

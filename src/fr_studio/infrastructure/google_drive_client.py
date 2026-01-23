@@ -87,9 +87,7 @@ class GoogleDriveClient:
             "trashed=false"
         )
         results = (
-            self._service.files()
-            .list(q=query, fields="files(id, name)")
-            .execute()
+            self._service.files().list(q=query, fields="files(id, name)").execute()
         )
         files = results.get("files", [])
         return files[0]["id"] if files else None
@@ -134,7 +132,7 @@ class GoogleDriveClient:
             downloader = MediaIoBaseDownload(f, request)
             done = False
             while not done:
-                _, done = downloader.next_chunk()
+                _, done = downloader.next_chunk(num_retries=5)
 
         return dest_path
 
@@ -160,7 +158,7 @@ class GoogleDriveClient:
         results = (
             self._service.files()
             .list(q=query, fields="files(id, name)")
-            .execute()
+            .execute(num_retries=5)
         )
         files = results.get("files", [])
 
@@ -178,7 +176,7 @@ class GoogleDriveClient:
         folder = (
             self._service.files()
             .create(body=file_metadata, fields="id")
-            .execute()
+            .execute(num_retries=5)
         )
         return folder["id"]
 
@@ -220,6 +218,6 @@ class GoogleDriveClient:
         file = (
             self._service.files()
             .create(body=file_metadata, media_body=media, fields="id")
-            .execute()
+            .execute(num_retries=5)
         )
         return file["id"]

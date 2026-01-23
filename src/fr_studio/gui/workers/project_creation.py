@@ -48,13 +48,13 @@ class ProjectCreationWorker(BaseWorker):
         self.exclude_ids = set(exclude_ids)
 
         # サービス（DIContainerから取得）
-        self._downloader = GoogleDriveDownloader()
+        self._downloader = inject(GoogleDriveDownloader)
         self._product_image_service = inject(ProductImageService)
 
         # Spreadsheetから全商品を取得してキャッシュ
         self._sheet_items: dict[int, SheetItem] = {}
         try:
-            sheets_client = GoogleSheetsClient()
+            sheets_client = inject(GoogleSheetsClient)
             all_items = sheets_client.get_all_items()
             self._sheet_items = {item.item_id: item for item in all_items}
         except Exception:
