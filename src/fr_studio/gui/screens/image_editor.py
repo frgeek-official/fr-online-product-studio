@@ -43,6 +43,13 @@ from PySide6.QtWidgets import (
 )
 
 from fr_studio.application.tone_adjuster import ToneParameters
+from fr_studio.application.transform import (
+    TransformParams,
+    scale_to_slider,
+    slider_to_scale,
+    slider_to_translate,
+    translate_to_slider,
+)
 from fr_studio.infrastructure.birefnet_remover import BiRefNetRemover
 from fr_studio.infrastructure.numpy_tone_adjuster import NumpyToneAdjuster
 from fr_studio.infrastructure.pillow_centerer import PillowCenterer
@@ -89,16 +96,19 @@ class ThumbnailItem(QFrame):
         self._thumbnail = QLabel()
         self._thumbnail.setFixedSize(160, 80)
         self._thumbnail.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._thumbnail.setStyleSheet("""
+        self._thumbnail.setStyleSheet(
+            """
             background: #1a1a24;
             border-radius: 6px;
-        """)
+        """
+        )
 
         if filepath and Path(filepath).exists():
             pixmap = QPixmap(filepath)
             if not pixmap.isNull():
                 scaled = pixmap.scaled(
-                    160, 80,
+                    160,
+                    80,
                     Qt.AspectRatioMode.KeepAspectRatio,
                     Qt.TransformationMode.SmoothTransformation,
                 )
@@ -109,39 +119,48 @@ class ThumbnailItem(QFrame):
         # ラベル
         self._label = QLabel(name)
         self._label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._label.setStyleSheet("""
+        self._label.setStyleSheet(
+            """
             font-size: 10px;
             color: #666;
             background: transparent;
-        """)
+        """
+        )
         layout.addWidget(self._label)
 
     def _update_style(self) -> None:
         if self._drag_over:
-            self.setStyleSheet("""
+            self.setStyleSheet(
+                """
                 ThumbnailItem {
                     border: 2px dashed #ff9800;
                     border-radius: 8px;
                     background: rgba(255, 152, 0, 0.1);
                 }
-            """)
+            """
+            )
         elif self._selected:
-            self.setStyleSheet("""
+            self.setStyleSheet(
+                """
                 ThumbnailItem {
                     border: 2px solid #00c2a8;
                     border-radius: 8px;
                     background: rgba(0, 194, 168, 0.1);
                 }
-            """)
+            """
+            )
             if hasattr(self, "_label"):
-                self._label.setStyleSheet("""
+                self._label.setStyleSheet(
+                    """
                     font-size: 10px;
                     font-weight: bold;
                     color: #00c2a8;
                     background: transparent;
-                """)
+                """
+                )
         else:
-            self.setStyleSheet("""
+            self.setStyleSheet(
+                """
                 ThumbnailItem {
                     border: 1px solid #24242e;
                     border-radius: 8px;
@@ -150,13 +169,16 @@ class ThumbnailItem(QFrame):
                 ThumbnailItem:hover {
                     border-color: rgba(0, 194, 168, 0.5);
                 }
-            """)
+            """
+            )
             if hasattr(self, "_label"):
-                self._label.setStyleSheet("""
+                self._label.setStyleSheet(
+                    """
                     font-size: 10px;
                     color: #666;
                     background: transparent;
-                """)
+                """
+                )
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
@@ -251,19 +273,23 @@ class ImageCanvas(QGraphicsView):
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
         # スタイル
-        self.setStyleSheet("""
+        self.setStyleSheet(
+            """
             QGraphicsView {
                 background: #0a0a0f;
                 border: 1px solid rgba(255, 255, 255, 0.05);
                 border-radius: 12px;
             }
-        """)
+        """
+        )
 
     def set_image(self, pixmap: QPixmap) -> None:
         """画像を設定."""
         self._scene.clear()
         self._pixmap_item = self._scene.addPixmap(pixmap)
-        self._pixmap_item.setTransformationMode(Qt.TransformationMode.SmoothTransformation)
+        self._pixmap_item.setTransformationMode(
+            Qt.TransformationMode.SmoothTransformation
+        )
         self.setSceneRect(self._pixmap_item.boundingRect())
         self.fit_in_view()
 
@@ -363,6 +389,11 @@ class ImageEditorScreen(BaseScreen):
         self._contrast_whole: int = 0  # -100 to +100
         self._contrast_product: int = 0  # -100 to +100
 
+        # Transform パラメータ（ズーム・位置）
+        self._zoom_value: int = 50  # 0-100 (50=scale 1.0)
+        self._pos_x_value: int = 50  # 0-100 (50=中央)
+        self._pos_y_value: int = 50  # 0-100 (50=中央)
+
         # 画像データ（新設計）
         self._original_image: Image.Image | None = None  # 元画像（不変）
         self._product_mask: Image.Image | None = None  # 商品マスク
@@ -393,21 +424,25 @@ class ImageEditorScreen(BaseScreen):
 
         # ローディングオーバーレイ
         self._loading_overlay = QWidget(self)
-        self._loading_overlay.setStyleSheet("""
+        self._loading_overlay.setStyleSheet(
+            """
             background: rgba(0, 0, 0, 0.7);
-        """)
+        """
+        )
         self._loading_overlay.hide()
 
         loading_layout = QVBoxLayout(self._loading_overlay)
         loading_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         loading_label = QLabel("処理中...")
-        loading_label.setStyleSheet("""
+        loading_label.setStyleSheet(
+            """
             color: #fff;
             font-size: 18px;
             font-weight: bold;
             background: transparent;
-        """)
+        """
+        )
         loading_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         loading_layout.addWidget(loading_label)
 
@@ -491,7 +526,8 @@ class ImageEditorScreen(BaseScreen):
 
         # 戻るボタン
         self._back_btn = QPushButton("← 戻る")
-        self._back_btn.setStyleSheet("""
+        self._back_btn.setStyleSheet(
+            """
             QPushButton {
                 background: transparent;
                 border: 1px solid #3a3a4a;
@@ -504,18 +540,21 @@ class ImageEditorScreen(BaseScreen):
                 border-color: #00c2a8;
                 color: #fff;
             }
-        """)
+        """
+        )
         self._back_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self._back_btn.clicked.connect(self._on_back_clicked)
         header_layout.addWidget(self._back_btn)
 
         # 商品ID・商品名表示（小さめ）
         self._product_id_label = QLabel("")
-        self._product_id_label.setStyleSheet("""
+        self._product_id_label.setStyleSheet(
+            """
             font-size: 14px;
             font-weight: bold;
             color: #fff;
-        """)
+        """
+        )
         header_layout.addWidget(self._product_id_label)
         header_layout.addStretch()
 
@@ -537,10 +576,12 @@ class ImageEditorScreen(BaseScreen):
         """サムネイルストリップを作成."""
         strip_container = QWidget()
         strip_container.setFixedHeight(140)
-        strip_container.setStyleSheet("""
+        strip_container.setStyleSheet(
+            """
             background: rgba(22, 22, 30, 0.4);
             border-top: 1px solid #2a2a35;
-        """)
+        """
+        )
 
         layout = QHBoxLayout(strip_container)
         layout.setContentsMargins(16, 16, 16, 16)
@@ -549,12 +590,13 @@ class ImageEditorScreen(BaseScreen):
         # 左矢印（前の画像へ）
         assets_dir = Path(__file__).parent.parent / "assets" / "icons"
         prev_icon = QIcon(str(assets_dir / "prev.png"))
-        
+
         left_btn = QPushButton()
         left_btn.setIcon(prev_icon)
         left_btn.setIconSize(QSize(20, 20))
         left_btn.setFixedSize(32, 32)
-        left_btn.setStyleSheet("""
+        left_btn.setStyleSheet(
+            """
             QPushButton {
                 background: rgba(13, 13, 18, 0.8);
                 border: 1px solid rgba(255, 255, 255, 0.1);
@@ -564,7 +606,8 @@ class ImageEditorScreen(BaseScreen):
                 background: #0d0d12;
                 border-color: rgba(255, 255, 255, 0.2);
             }
-        """)
+        """
+        )
         left_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         left_btn.clicked.connect(self._on_prev_image)
         layout.addWidget(left_btn)
@@ -578,12 +621,14 @@ class ImageEditorScreen(BaseScreen):
         self._thumbnail_scroll.setVerticalScrollBarPolicy(
             Qt.ScrollBarPolicy.ScrollBarAlwaysOff
         )
-        self._thumbnail_scroll.setStyleSheet("""
+        self._thumbnail_scroll.setStyleSheet(
+            """
             QScrollArea {
                 background: transparent;
                 border: none;
             }
-        """)
+        """
+        )
 
         self._thumbnail_container = QWidget()
         self._thumbnail_container.setStyleSheet("background: transparent;")
@@ -597,12 +642,13 @@ class ImageEditorScreen(BaseScreen):
 
         # 右矢印（次の画像へ）
         next_icon = QIcon(str(assets_dir / "next.png"))
-        
+
         right_btn = QPushButton()
         right_btn.setIcon(next_icon)
         right_btn.setIconSize(QSize(20, 20))
         right_btn.setFixedSize(32, 32)
-        right_btn.setStyleSheet("""
+        right_btn.setStyleSheet(
+            """
             QPushButton {
                 background: rgba(13, 13, 18, 0.8);
                 border: 1px solid rgba(255, 255, 255, 0.1);
@@ -612,7 +658,8 @@ class ImageEditorScreen(BaseScreen):
                 background: #0d0d12;
                 border-color: rgba(255, 255, 255, 0.2);
             }
-        """)
+        """
+        )
         right_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         right_btn.clicked.connect(self._on_next_image)
         layout.addWidget(right_btn)
@@ -623,10 +670,12 @@ class ImageEditorScreen(BaseScreen):
         """サイドバーを作成."""
         sidebar = QWidget()
         sidebar.setFixedWidth(320)
-        sidebar.setStyleSheet("""
+        sidebar.setStyleSheet(
+            """
             background: #16161e;
             border-left: 1px solid #2a2a35;
-        """)
+        """
+        )
 
         sidebar_layout = QVBoxLayout(sidebar)
         sidebar_layout.setContentsMargins(0, 0, 0, 0)
@@ -636,15 +685,18 @@ class ImageEditorScreen(BaseScreen):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        scroll.setStyleSheet("""
+        scroll.setStyleSheet(
+            """
             QScrollArea {
                 background: transparent;
                 border: none;
             }
-        """)
+        """
+        )
 
         scroll_content = QWidget()
-        scroll_content.setStyleSheet("""
+        scroll_content.setStyleSheet(
+            """
             QWidget {
                 background: transparent;
                 border: none;
@@ -653,7 +705,8 @@ class ImageEditorScreen(BaseScreen):
                 background: transparent;
                 border: none;
             }
-        """)
+        """
+        )
         scroll_layout = QVBoxLayout(scroll_content)
         scroll_layout.setContentsMargins(0, 0, 0, 0)
         scroll_layout.setSpacing(0)
@@ -679,7 +732,8 @@ class ImageEditorScreen(BaseScreen):
     def _create_background_section(self) -> QWidget:
         """Backgroundセクションを作成."""
         section = QWidget()
-        section.setStyleSheet("""
+        section.setStyleSheet(
+            """
             QWidget {
                 background: transparent;
                 border: none;
@@ -689,7 +743,8 @@ class ImageEditorScreen(BaseScreen):
                 background: transparent;
                 border: none;
             }
-        """)
+        """
+        )
 
         layout = QVBoxLayout(section)
         layout.setContentsMargins(24, 24, 24, 24)
@@ -702,12 +757,14 @@ class ImageEditorScreen(BaseScreen):
         header.addWidget(icon)
 
         title = QLabel("BACKGROUND")
-        title.setStyleSheet("""
+        title.setStyleSheet(
+            """
             font-size: 10px;
             font-weight: bold;
             letter-spacing: 2px;
             color: #888;
-        """)
+        """
+        )
         header.addWidget(title)
         header.addStretch()
 
@@ -727,7 +784,8 @@ class ImageEditorScreen(BaseScreen):
 
         self._bg_toggle = QCheckBox()
         self._bg_toggle.setChecked(True)
-        self._bg_toggle.setStyleSheet("""
+        self._bg_toggle.setStyleSheet(
+            """
             QCheckBox {
                 spacing: 0px;
             }
@@ -740,7 +798,8 @@ class ImageEditorScreen(BaseScreen):
             QCheckBox::indicator:checked {
                 background: #00c2a8;
             }
-        """)
+        """
+        )
         self._bg_toggle.stateChanged.connect(self._on_bg_toggle_changed)
         toggle_row.addWidget(self._bg_toggle)
 
@@ -760,7 +819,8 @@ class ImageEditorScreen(BaseScreen):
 
         self._center_toggle = QCheckBox()
         self._center_toggle.setChecked(True)
-        self._center_toggle.setStyleSheet("""
+        self._center_toggle.setStyleSheet(
+            """
             QCheckBox {
                 spacing: 0px;
             }
@@ -773,7 +833,8 @@ class ImageEditorScreen(BaseScreen):
             QCheckBox::indicator:checked {
                 background: #00c2a8;
             }
-        """)
+        """
+        )
         self._center_toggle.stateChanged.connect(self._on_center_toggle_changed)
         center_row.addWidget(self._center_toggle)
 
@@ -783,6 +844,33 @@ class ImageEditorScreen(BaseScreen):
         center_row.addWidget(center_hint)
 
         layout.addLayout(center_row)
+
+        # ズームスライダー
+        zoom_slider = self._create_slider_row(
+            "拡大/縮小", 0, 100, 50, self._on_zoom_changed, suffix="x"
+        )
+        self._zoom_slider = zoom_slider["slider"]
+        self._zoom_value_label = zoom_slider["value_label"]
+        self._zoom_value_label.setText("1.00x")  # 初期値
+        layout.addLayout(zoom_slider["layout"])
+
+        # X位置スライダー
+        pos_x_slider = self._create_slider_row(
+            "左右", 0, 100, 50, self._on_pos_x_changed
+        )
+        self._pos_x_slider = pos_x_slider["slider"]
+        self._pos_x_value_label = pos_x_slider["value_label"]
+        self._pos_x_value_label.setText("0")  # 中央からのオフセット
+        layout.addLayout(pos_x_slider["layout"])
+
+        # Y位置スライダー
+        pos_y_slider = self._create_slider_row(
+            "上下", 0, 100, 50, self._on_pos_y_changed
+        )
+        self._pos_y_slider = pos_y_slider["slider"]
+        self._pos_y_value_label = pos_y_slider["value_label"]
+        self._pos_y_value_label.setText("0")  # 中央からのオフセット
+        layout.addLayout(pos_y_slider["layout"])
 
         # エッジ加工スライダー
         edge_slider = self._create_slider_row(
@@ -805,7 +893,8 @@ class ImageEditorScreen(BaseScreen):
     def _create_contrast_section(self) -> QWidget:
         """Contrastセクションを作成."""
         section = QWidget()
-        section.setStyleSheet("""
+        section.setStyleSheet(
+            """
             QWidget {
                 background: transparent;
                 border: none;
@@ -815,7 +904,8 @@ class ImageEditorScreen(BaseScreen):
                 background: transparent;
                 border: none;
             }
-        """)
+        """
+        )
 
         layout = QVBoxLayout(section)
         layout.setContentsMargins(24, 24, 24, 24)
@@ -828,12 +918,14 @@ class ImageEditorScreen(BaseScreen):
         header.addWidget(icon)
 
         title = QLabel("CONTRAST")
-        title.setStyleSheet("""
+        title.setStyleSheet(
+            """
             font-size: 10px;
             font-weight: bold;
             letter-spacing: 2px;
             color: #888;
-        """)
+        """
+        )
         header.addWidget(title)
         header.addStretch()
         layout.addLayout(header)
@@ -877,7 +969,11 @@ class ImageEditorScreen(BaseScreen):
         label_row.addWidget(name_label)
         label_row.addStretch()
 
-        value_text = f"+{default}{suffix}" if show_sign and default >= 0 else f"{default}{suffix}"
+        value_text = (
+            f"+{default}{suffix}"
+            if show_sign and default >= 0
+            else f"{default}{suffix}"
+        )
         value_label = QLabel(value_text)
         value_label.setStyleSheet("font-size: 11px; color: #00c2a8;")
         label_row.addWidget(value_label)
@@ -889,7 +985,8 @@ class ImageEditorScreen(BaseScreen):
         slider.setMaximum(max_val)
         slider.setValue(default)
         slider.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        slider.setStyleSheet("""
+        slider.setStyleSheet(
+            """
             QSlider {
                 padding: 2px;
             }
@@ -912,7 +1009,8 @@ class ImageEditorScreen(BaseScreen):
                 border: 2px solid #00c2a8;
                 border-radius: 4px;
             }
-        """)
+        """
+        )
         slider.valueChanged.connect(callback)
         container.addWidget(slider)
 
@@ -925,10 +1023,12 @@ class ImageEditorScreen(BaseScreen):
     def _create_sidebar_footer(self) -> QWidget:
         """サイドバーフッターを作成."""
         footer = QWidget()
-        footer.setStyleSheet("""
+        footer.setStyleSheet(
+            """
             background: rgba(22, 22, 30, 0.8);
             border-top: 1px solid #2a2a35;
-        """)
+        """
+        )
 
         layout = QVBoxLayout(footer)
         layout.setContentsMargins(24, 24, 24, 24)
@@ -937,7 +1037,8 @@ class ImageEditorScreen(BaseScreen):
         # 前の商品ボタン
         prev_btn = QPushButton("< 前の商品へ (⌥⌘←)")
         prev_btn.setFixedHeight(40)
-        prev_btn.setStyleSheet("""
+        prev_btn.setStyleSheet(
+            """
             QPushButton {
                 background: rgba(255, 255, 255, 0.05);
                 border: 1px solid #2a2a35;
@@ -952,7 +1053,8 @@ class ImageEditorScreen(BaseScreen):
                 border-color: rgba(255, 255, 255, 0.2);
                 color: #fff;
             }
-        """)
+        """
+        )
         prev_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         prev_btn.clicked.connect(self.prev_product_requested.emit)
         layout.addWidget(prev_btn)
@@ -960,7 +1062,8 @@ class ImageEditorScreen(BaseScreen):
         # 次の商品ボタン
         next_btn = QPushButton("次の商品へ > (⌥⌘→)")
         next_btn.setFixedHeight(40)
-        next_btn.setStyleSheet("""
+        next_btn.setStyleSheet(
+            """
             QPushButton {
                 background: rgba(0, 194, 168, 0.05);
                 border: 1px solid rgba(0, 194, 168, 0.3);
@@ -974,7 +1077,8 @@ class ImageEditorScreen(BaseScreen):
                 background: rgba(0, 194, 168, 0.1);
                 border-color: #00c2a8;
             }
-        """)
+        """
+        )
         next_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         next_btn.clicked.connect(self.next_product_requested.emit)
         layout.addWidget(next_btn)
@@ -1018,11 +1122,14 @@ class ImageEditorScreen(BaseScreen):
 
         # 背景除去OFFの場合、以下を無効化
         # - 中央寄せトグル
+        # - ズーム・位置スライダー
         # - エッジ加工スライダー
         # - 影濃度スライダー
         # - 商品コントラストスライダー
-        # - 背景コントラストスライダー
         self._center_toggle.setEnabled(bg_enabled)
+        self._zoom_slider.setEnabled(bg_enabled)
+        self._pos_x_slider.setEnabled(bg_enabled)
+        self._pos_y_slider.setEnabled(bg_enabled)
         self._edge_slider.setEnabled(bg_enabled)
         self._shadow_slider.setEnabled(bg_enabled)
         self._contrast_product_slider.setEnabled(bg_enabled)
@@ -1031,6 +1138,18 @@ class ImageEditorScreen(BaseScreen):
     def _on_center_toggle_changed(self, state: int) -> None:
         """中央寄せトグル変更."""
         self._centering_enabled = state == Qt.CheckState.Checked.value
+
+        # ズーム・位置パラメータをリセット
+        self._zoom_value = 50  # scale 1.0
+        self._pos_x_value = 50  # 中央
+        self._pos_y_value = 50  # 中央
+        self._zoom_slider.setValue(50)
+        self._pos_x_slider.setValue(50)
+        self._pos_y_slider.setValue(50)
+        self._zoom_value_label.setText("1.00x")
+        self._pos_x_value_label.setText("0")
+        self._pos_y_value_label.setText("0")
+
         self._schedule_preview_update()
 
     def _on_edge_changed(self, value: int) -> None:
@@ -1055,6 +1174,25 @@ class ImageEditorScreen(BaseScreen):
         """商品コントラストスライダー変更."""
         self._contrast_product = value
         self._contrast_product_label.setText(f"+{value}" if value >= 0 else str(value))
+        self._schedule_preview_update()
+
+    def _on_zoom_changed(self, value: int) -> None:
+        """ズームスライダー変更."""
+        self._zoom_value = value
+        scale = slider_to_scale(value)
+        self._zoom_value_label.setText(f"{scale:.2f}x")
+        self._schedule_preview_update()
+
+    def _on_pos_x_changed(self, value: int) -> None:
+        """X位置スライダー変更."""
+        self._pos_x_value = value
+        self._pos_x_value_label.setText(str(value - 50))
+        self._schedule_preview_update()
+
+    def _on_pos_y_changed(self, value: int) -> None:
+        """Y位置スライダー変更."""
+        self._pos_y_value = value
+        self._pos_y_value_label.setText(str(value - 50))
         self._schedule_preview_update()
 
     def _schedule_preview_update(self) -> None:
@@ -1232,6 +1370,48 @@ class ImageEditorScreen(BaseScreen):
             self._center_toggle.setChecked(False)
             self._center_toggle.setEnabled(False)
 
+        # Transform パラメータ復元
+        if self._image_model.transform_json:
+            transform = TransformParams.from_json(self._image_model.transform_json)
+
+            # ズームスライダー
+            self._zoom_value = scale_to_slider(transform.scale)
+            self._zoom_slider.setValue(self._zoom_value)
+            self._zoom_value_label.setText(f"{transform.scale:.2f}x")
+
+            # 位置スライダー（bboxからscaled_sizeを計算）
+            if transform.bbox:
+                bbox_w = transform.bbox[2] - transform.bbox[0]
+                bbox_h = transform.bbox[3] - transform.bbox[1]
+                scaled_w = int(bbox_w * transform.scale)
+                scaled_h = int(bbox_h * transform.scale)
+
+                self._pos_x_value = translate_to_slider(
+                    transform.translate_x, scaled_w, transform.canvas_width
+                )
+                self._pos_y_value = translate_to_slider(
+                    transform.translate_y, scaled_h, transform.canvas_height
+                )
+            else:
+                self._pos_x_value = 50
+                self._pos_y_value = 50
+
+            self._pos_x_slider.setValue(self._pos_x_value)
+            self._pos_y_slider.setValue(self._pos_y_value)
+            self._pos_x_value_label.setText(str(self._pos_x_value - 50))
+            self._pos_y_value_label.setText(str(self._pos_y_value - 50))
+        else:
+            # デフォルト値（zoom 50 = scale 1.0）
+            self._zoom_value = 50
+            self._pos_x_value = 50
+            self._pos_y_value = 50
+            self._zoom_slider.setValue(50)
+            self._pos_x_slider.setValue(50)
+            self._pos_y_slider.setValue(50)
+            self._zoom_value_label.setText("1.00x")
+            self._pos_x_value_label.setText("0")
+            self._pos_y_value_label.setText("0")
+
     def _load_image_files(self) -> None:
         """画像ファイルを読み込む."""
         if not self._image_model:
@@ -1373,16 +1553,42 @@ class ImageEditorScreen(BaseScreen):
                 refined_mask = refined_mask.resize(image.size, Image.Resampling.LANCZOS)
             image.putalpha(refined_mask)
 
-            # 中央寄せがONの場合
-            if self._centering_enabled:
-                image = self._centerer.center_image(image, bbox=self._cached_bbox)
+            # ズーム・位置・中央寄せの適用
+            zoom_multiplier = slider_to_scale(self._zoom_value)
+
+            # 被写体サイズからtranslate計算（auto-scale考慮）
+            canvas_size = 1200
+            available_size = int(canvas_size * 0.9)  # margin_ratio=0.05
+            if self._cached_bbox:
+                bbox_w = self._cached_bbox[2] - self._cached_bbox[0]
+                bbox_h = self._cached_bbox[3] - self._cached_bbox[1]
+                auto_scale = min(available_size / bbox_w, available_size / bbox_h)
+                final_scale = auto_scale * zoom_multiplier
+                scaled_w = int(bbox_w * final_scale)
+                scaled_h = int(bbox_h * final_scale)
+            else:
+                scaled_w = scaled_h = int(600 * zoom_multiplier)
+
+            translate_x = slider_to_translate(self._pos_x_value, scaled_w, canvas_size)
+            translate_y = slider_to_translate(self._pos_y_value, scaled_h, canvas_size)
+
+            image = self._centerer.center_image(
+                image,
+                bbox=self._cached_bbox,
+                translate_x=translate_x,
+                translate_y=translate_y,
+                auto_center=self._centering_enabled,
+                zoom_multiplier=zoom_multiplier,
+            )
 
             # 影追加（キャッシュ利用）
             shadow_opacity = int(self._shadow_value * 2.55)  # 0-100 → 0-255
             if shadow_opacity > 0:
                 # センタリング後のアルファから影用マスクを取得
                 shadow_mask = image.getchannel("A")
-                shadow_bg = self._get_shadow_layer(shadow_opacity, image.size, shadow_mask)
+                shadow_bg = self._get_shadow_layer(
+                    shadow_opacity, image.size, shadow_mask
+                )
                 image = Image.alpha_composite(shadow_bg, image)
             else:
                 # 影なしの場合は白背景に合成
@@ -1390,7 +1596,11 @@ class ImageEditorScreen(BaseScreen):
                 image = Image.alpha_composite(white_bg, image)
 
         # 商品コントラスト調整（マスクがある場合のみ適用可能）
-        if self._bg_removal_enabled and self._product_mask and self._contrast_product != 0:
+        if (
+            self._bg_removal_enabled
+            and self._product_mask
+            and self._contrast_product != 0
+        ):
             # センタリング適用時はセンタリング後の画像からマスクを取得
             if self._centering_enabled:
                 centered_product_mask = image.getchannel("A")
@@ -1512,10 +1722,10 @@ class ImageEditorScreen(BaseScreen):
 
     def _apply_mask_to_image(self, image: Image.Image) -> Image.Image:
         """マスクを適用して背景を透過.
-        
+
         Args:
             image: 入力画像（RGBA）
-            
+
         Returns:
             背景が透過されたRGBA画像
         """
@@ -1543,9 +1753,7 @@ class ImageEditorScreen(BaseScreen):
         else:
             image = image.convert("RGB")
             data = image.tobytes("raw", "RGB")
-            qimg = QImage(
-                data, image.width, image.height, QImage.Format.Format_RGB888
-            )
+            qimg = QImage(data, image.width, image.height, QImage.Format.Format_RGB888)
 
         pixmap = QPixmap.fromImage(qimg)
 
@@ -1577,11 +1785,47 @@ class ImageEditorScreen(BaseScreen):
 
         # UI値をモデル値に変換して保存
         self._image_model.edge_threshold = self._edge_value // 10  # 0-100 → 0-10
-        self._image_model.shadow_threshold = self._shadow_value / 100.0  # 0-100 → 0.0-1.0
+        self._image_model.shadow_threshold = (
+            self._shadow_value / 100.0
+        )  # 0-100 → 0.0-1.0
         self._image_model.whole_contrast = self._contrast_whole
         self._image_model.product_contrast = self._contrast_product
         self._image_model.is_background_removed = self._bg_removal_enabled
         self._image_model.is_centered = self._centering_enabled
+
+        # Transform パラメータを保存
+        if self._bg_removal_enabled:
+            zoom_multiplier = slider_to_scale(self._zoom_value)
+
+            # translate計算（auto-scale考慮）
+            canvas_size = 1200
+            available_size = int(canvas_size * 0.9)  # margin_ratio=0.05
+            if self._cached_bbox:
+                bbox_w = self._cached_bbox[2] - self._cached_bbox[0]
+                bbox_h = self._cached_bbox[3] - self._cached_bbox[1]
+                auto_scale = min(available_size / bbox_w, available_size / bbox_h)
+                final_scale = auto_scale * zoom_multiplier
+                scaled_w = int(bbox_w * final_scale)
+                scaled_h = int(bbox_h * final_scale)
+            else:
+                scaled_w = scaled_h = int(600 * zoom_multiplier)
+
+            translate_x = slider_to_translate(self._pos_x_value, scaled_w, canvas_size)
+            translate_y = slider_to_translate(self._pos_y_value, scaled_h, canvas_size)
+
+            transform = TransformParams(
+                scale=zoom_multiplier,  # zoom_multiplierとして保存
+                translate_x=translate_x,
+                translate_y=translate_y,
+                rotation=0.0,
+                bbox=self._cached_bbox,
+                canvas_width=canvas_size,
+                canvas_height=canvas_size,
+            )
+            self._image_model.transform_json = transform.to_json()
+        else:
+            self._image_model.transform_json = None
+
         self._image_model.save()
 
     def _generate_final_image(self) -> Image.Image | None:
@@ -1597,9 +1841,33 @@ class ImageEditorScreen(BaseScreen):
             # マスクを適用して背景を透過
             image = self._apply_mask_to_image(image)
 
-            # 中央寄せがONの場合
-            if self._centering_enabled:
-                image = self._centerer.center_image(image, bbox=self._cached_bbox)
+            # ズーム・位置・中央寄せの適用
+            zoom_multiplier = slider_to_scale(self._zoom_value)
+
+            # 被写体サイズからtranslate計算（auto-scale考慮）
+            canvas_size = 1200
+            available_size = int(canvas_size * 0.9)  # margin_ratio=0.05
+            if self._cached_bbox:
+                bbox_w = self._cached_bbox[2] - self._cached_bbox[0]
+                bbox_h = self._cached_bbox[3] - self._cached_bbox[1]
+                auto_scale = min(available_size / bbox_w, available_size / bbox_h)
+                final_scale = auto_scale * zoom_multiplier
+                scaled_w = int(bbox_w * final_scale)
+                scaled_h = int(bbox_h * final_scale)
+            else:
+                scaled_w = scaled_h = int(600 * zoom_multiplier)
+
+            translate_x = slider_to_translate(self._pos_x_value, scaled_w, canvas_size)
+            translate_y = slider_to_translate(self._pos_y_value, scaled_h, canvas_size)
+
+            image = self._centerer.center_image(
+                image,
+                bbox=self._cached_bbox,
+                translate_x=translate_x,
+                translate_y=translate_y,
+                auto_center=self._centering_enabled,
+                zoom_multiplier=zoom_multiplier,
+            )
 
             # エッジ処理
             erode = max(0, self._edge_value // 20)
@@ -1674,9 +1942,7 @@ class ImageEditorScreen(BaseScreen):
                 str(final_path)
             )
 
-    def _save_thumbnail_from_filepath(
-        self, product_image: ProductImageModel
-    ) -> Path:
+    def _save_thumbnail_from_filepath(self, product_image: ProductImageModel) -> Path:
         """filepathの画像をリサイズしてサムネイル保存.
 
         Args:

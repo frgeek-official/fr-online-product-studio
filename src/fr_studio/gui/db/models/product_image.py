@@ -1,6 +1,13 @@
 """商品画像モデル."""
 
-from peewee import BooleanField, CharField, FloatField, ForeignKeyField, IntegerField
+from peewee import (
+    BooleanField,
+    CharField,
+    FloatField,
+    ForeignKeyField,
+    IntegerField,
+    TextField,
+)
 
 from .base import BaseModel
 from .product import ProductModel
@@ -60,6 +67,9 @@ class ProductImageModel(BaseModel):
 
     # 並び順（アップロード時のファイル名に使用）
     sort = IntegerField(default=1)
+
+    # Transform パラメータ（JSON形式）
+    transform_json = TextField(null=True, default=None)
 
     # ファイルパス
     original_filepath = CharField(max_length=1024)  # リサイズ済みsource画像

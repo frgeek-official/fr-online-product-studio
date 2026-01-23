@@ -39,7 +39,7 @@ def get_database(db_path: Path | None = None) -> SqliteDatabase:
 
 def initialize_database() -> None:
     """データベーステーブルを作成.
-    
+
     アプリケーション起動時に呼び出す。
     既存のテーブルがある場合は何もしない。
     """
@@ -48,6 +48,28 @@ def initialize_database() -> None:
     db = get_database()
     db.connect(reuse_if_open=True)
     db.create_tables([ProjectModel, ProductModel, ProductImageModel], safe=True)
+
+    # マイグレーション実行
+    _run_migrations(db)
+
+
+def _run_migrations(db: SqliteDatabase) -> None:
+    """データベースマイグレーションを実行.
+
+    新しいカラムが追加された場合にALTER TABLEを実行する。
+    """
+    # 既存カラムを取得
+    cursor = db.execute_sql("PRAGMA table_info(product_images)")
+    columns = {row[1] for row in cursor.fetchall()}
+
+    # transform_json カラム追加
+    if "transform_json" not in columns:
+        try:
+            db.execute_sql(
+                "ALTER TABLE product_images ADD COLUMN transform_json TEXT DEFAULT NULL"
+            )
+        except Exception:
+            pass  # カラムが既に存在する場合はスキップ
 
 
 def get_data_dir() -> Path:

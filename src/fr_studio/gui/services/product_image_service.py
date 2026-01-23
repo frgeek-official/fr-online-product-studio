@@ -5,6 +5,7 @@ from pathlib import Path
 from PIL import Image, ImageOps
 
 from fr_studio.application.tone_adjuster import ToneParameters
+from fr_studio.application.transform import TransformParams
 from fr_studio.gui.db.models import ProductImageModel, ProductModel
 from fr_studio.infrastructure.birefnet_remover import BiRefNetRemover
 from fr_studio.infrastructure.numpy_tone_adjuster import NumpyToneAdjuster
@@ -95,23 +96,46 @@ class ProductImageService:
             # マスク適用
             image.putalpha(refined_mask)
 
-            # 中央寄せ
-            if product_image.is_centered and product_image.center_content_w > 0:
+            # 中央寄せ・Transform適用
+            if product_image.center_content_w > 0:
                 bbox = (
                     product_image.center_content_x,
                     product_image.center_content_y,
                     product_image.center_content_x + product_image.center_content_w,
                     product_image.center_content_y + product_image.center_content_h,
                 )
-                # リサイズ時はbboxもスケール、canvas_sizeも画像サイズに合わせる
+
+                # Transformパラメータ取得
+                transform = TransformParams.from_json(product_image.transform_json)
+                # transform.scaleはzoom_multiplierとして使用
+                zoom_multiplier = transform.scale if product_image.transform_json else 1.0
+                translate_x = transform.translate_x
+                translate_y = transform.translate_y
+
+                # リサイズ時はbbox・translateもスケール
                 if output_size:
-                    scale = image.width / original_width
-                    bbox = tuple(int(v * scale) for v in bbox)
+                    img_scale = image.width / original_width
+                    bbox = tuple(int(v * img_scale) for v in bbox)
+                    translate_x = translate_x * img_scale
+                    translate_y = translate_y * img_scale
                     image = self._centerer.center_image(
-                        image, canvas_size=image.size, bbox=bbox
+                        image,
+                        canvas_size=image.size,
+                        bbox=bbox,
+                        translate_x=translate_x,
+                        translate_y=translate_y,
+                        auto_center=product_image.is_centered,
+                        zoom_multiplier=zoom_multiplier,
                     )
                 else:
-                    image = self._centerer.center_image(image, bbox=bbox)
+                    image = self._centerer.center_image(
+                        image,
+                        bbox=bbox,
+                        translate_x=translate_x,
+                        translate_y=translate_y,
+                        auto_center=product_image.is_centered,
+                        zoom_multiplier=zoom_multiplier,
+                    )
 
             # 影追加
             if product_image.shadow_threshold > 0:
