@@ -167,13 +167,15 @@ class ProductImageService:
         self,
         product: ProductModel,
         image_path: Path,
+        original_path: Path,
         sort_index: int = 1,
     ) -> int:
         """画像を処理してDBに登録する.
 
         Args:
             product: 商品モデル
-            image_path: 元画像パス（リサイズ済みsource画像）
+            image_path: リサイズ済み画像パス（source/）
+            original_path: 元画像パス（originals/）
             sort_index: 並び順
 
         Returns:
@@ -227,8 +229,8 @@ class ProductImageService:
             is_centered=is_background_removed,
             is_white_bg=False,  # TODO: 背景分類で判定
             sort=sort_index,
-            original_filepath=str(image_path),
-            filepath=None,  # 最終出力はexport時またはエディタ保存時に生成
+            original_filepath=str(original_path),
+            filepath=str(image_path),
             product_mask_filepath=str(product_mask_path) if product_mask_path else None,
             background_mask_filepath=(
                 str(background_mask_path) if background_mask_path else None
@@ -292,7 +294,7 @@ class ProductImageService:
             サムネイル画像のパス
         """
         # 常に元画像（未処理）を使用して二重処理を防ぐ
-        image = self.render_image(product_image, output_size=(200, 200), use_original=True)
+        image = self.render_image(product_image, output_size=(200, 200), use_original=False)
 
         # 保存
         processed_dir = Path(product_image.product.product_dir_path) / "processed"

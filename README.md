@@ -22,6 +22,12 @@ source .venv/bin/activate
 pip install -e ".[dev]"
 ```
 
+## GUIアプリ起動
+
+```bash
+python -m fr_studio.gui.main
+```
+
 ## 開発
 
 ```bash

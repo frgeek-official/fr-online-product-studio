@@ -176,36 +176,43 @@ class ProjectCreationWorker(BaseWorker):
         source_dir = product_dir / "source"
         source_dir.mkdir(parents=True, exist_ok=True)
 
-        resized_paths = []
+        # (original, resized) のペアを作成
+        image_pairs: list[tuple[Path, Path]] = []
         for original_path in image_paths:
             resized_path = self._create_resized_image(original_path, source_dir)
-            resized_paths.append(resized_path)
+            image_pairs.append((original_path, resized_path))
 
-        # 各画像を処理（リサイズ版を使用、ファイル名昇順でsort値を設定）
-        sorted_paths = sorted(resized_paths, key=lambda p: p.name)
-        total_images = len(sorted_paths)
-        for sort_index, img_path in enumerate(sorted_paths, start=1):
+        # リサイズ版のファイル名昇順でソート
+        sorted_pairs = sorted(image_pairs, key=lambda pair: pair[1].name)
+        total_images = len(sorted_pairs)
+        for sort_index, (original_path, resized_path) in enumerate(sorted_pairs, start=1):
             if self.check_cancelled():
                 return
             self.emit_progress(
                 f"商品 {item_id}: 画像処理中 ({sort_index}/{total_images})...", percent
             )
-            self._process_image(product, img_path, sort_index)
+            self._process_image(product, resized_path, original_path, sort_index)
 
     def _process_image(
-        self, product: ProductModel, original_path: Path, sort_index: int
+        self,
+        product: ProductModel,
+        resized_path: Path,
+        original_path: Path,
+        sort_index: int,
     ) -> None:
         """画像を処理する.
 
         Args:
             product: 商品モデル
-            original_path: 元画像パス
+            resized_path: リサイズ済み画像パス（source/）
+            original_path: 元画像パス（originals/）
             sort_index: 並び順（1から開始）
         """
         # ProductImageServiceを使用してマスク生成・DB登録
         self._product_image_service.create_product_image(
             product=product,
-            image_path=original_path,
+            image_path=resized_path,
+            original_path=original_path,
             sort_index=sort_index,
         )
 

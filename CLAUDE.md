@@ -31,6 +31,12 @@ ruff check src/
 ruff check src/ --fix  # 自動修正
 ```
 
+## コード規約
+
+- ruff: line-length=100, target py313, rules: E, F, I, UP, B, C4, SIM
+- mypy: strict mode
+- 画像処理は常にRGBA形式で扱う（`Image.Image`）
+
 ## アーキテクチャ
 
 クリーンアーキテクチャ + GUI層:
@@ -42,6 +48,15 @@ src/fr_studio/
 ├── infrastructure/  # 具体的な実装（ML/画像処理）
 └── gui/             # PySide6 GUIアプリ
 ```
+
+### domain層
+
+`@dataclass(frozen=True)` で不変モデルを定義。変更は `.with_*()` メソッドで新インスタンスを返す。
+
+- `Product` - 商品（id, category, title, description等）
+- `ProductImage` - 商品画像（product_id, path, processing stage）
+- `ImageProcessingStage` enum: RAW → BACKGROUND_REMOVED → CENTERED → TONE_ADJUSTED
+- `ProcessingStatus` enum: PENDING → PROCESSING → COMPLETED / FAILED
 
 ### application層
 
@@ -64,6 +79,9 @@ application層のProtocolに対する具体的な実装:
 - `PillowEdgeRefiner` - アルファエッジのデフリンジ・フェザー処理
 - `PillowShadowAdder` - 床影効果の追加
 - `PixelBackgroundClassifier` - HSV色空間でのピクセル分析による背景分類
+- `GoogleDriveClient` / `GoogleSheetsClient` - Google API連携（dotenvで認証情報管理）
+
+**AsyncModelLoader** (`infrastructure/model_state.py`): MLモデルの非同期ロード管理。`start_loading()` でバックグラウンドロード開始、`wait_until_loaded()` で完了待機。状態は `ModelState` enum (NOT_LOADED → LOADING → LOADED / ERROR) で管理。
 
 ### gui層
 
@@ -83,15 +101,18 @@ gui/
 **主要パターン:**
 - `DIContainer` + `inject()` でサービス取得
 - `Signal/Slot` でイベント駆動
-- `QThread` (BaseWorker) で重い処理を非同期化
 - `NavigationService` でQStackedWidget画面遷移
+
+**BaseWorker** (`gui/workers/base.py`): QThread継承。`progress = Signal(str, int)` と `error = Signal(str)` を提供。サブクラスは `emit_progress()`, `emit_error()`, `check_cancelled()` を使う。
+
+**DB:** Peewee ORM + SQLite (WAL mode, foreign_keys=1)。`BaseModel` が `created_time`/`updated_time` を自動管理。外部キーは `on_delete="CASCADE"`。
 
 **データ保存先:** `~/.fr_studio/`（DB: `studio.db`, プロジェクト画像: `projects/`）
 
 **GUI画面遷移:**
 - Dashboard → CreateProject → Loading → ProjectDetail
 - Dashboard → ProjectDetail (選択時)
-- ProjectDetail → ImageEditor (Phase 5で実装予定)
+- ProjectDetail → ImageEditor
 
 **テスト画像:** `~/.fr_studio/test_images/{item_id}/` にローカル画像を配置するとGoogle Drive APIなしでテスト可能
 

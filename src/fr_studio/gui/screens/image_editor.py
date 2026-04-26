@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -723,6 +724,34 @@ class ImageEditorScreen(BaseScreen):
         scroll.setWidget(scroll_content)
         sidebar_layout.addWidget(scroll, 1)
 
+        # Photoshopで開くボタン
+        photoshop_container = QWidget()
+        photoshop_container.setStyleSheet("background: transparent; border: none;")
+        photoshop_layout = QVBoxLayout(photoshop_container)
+        photoshop_layout.setContentsMargins(16, 8, 16, 8)
+
+        photoshop_btn = QPushButton("🎨 Photoshopで開く")
+        photoshop_btn.setStyleSheet("""
+            QPushButton {
+                background: rgba(0, 122, 255, 0.15);
+                border: 1px solid rgba(0, 122, 255, 0.3);
+                border-radius: 8px;
+                padding: 12px;
+                color: #5ac8fa;
+                font-weight: 500;
+            }
+            QPushButton:hover {
+                background: rgba(0, 122, 255, 0.25);
+                border-color: rgba(0, 122, 255, 0.5);
+            }
+            QPushButton:pressed {
+                background: rgba(0, 122, 255, 0.35);
+            }
+        """)
+        photoshop_btn.clicked.connect(self._on_open_in_photoshop)
+        photoshop_layout.addWidget(photoshop_btn)
+        sidebar_layout.addWidget(photoshop_container)
+
         # フッター（商品ナビゲーション）
         footer = self._create_sidebar_footer()
         sidebar_layout.addWidget(footer)
@@ -1424,9 +1453,9 @@ class ImageEditorScreen(BaseScreen):
         self._cached_bbox = None
         self._clear_mask_cache()  # パラメータ別キャッシュもクリア
 
-        # 元画像
-        if self._image_model.original_filepath:
-            path = Path(self._image_model.original_filepath)
+        # 編集用画像（リサイズ版 - マスクとサイズ一致）
+        if self._image_model.filepath:
+            path = Path(self._image_model.filepath)
             if path.exists():
                 self._original_image = Image.open(path)
                 if self._original_image.mode != "RGBA":
@@ -1923,10 +1952,6 @@ class ImageEditorScreen(BaseScreen):
         # 保存
         final_image.save(final_path)
 
-        # DB更新
-        self._image_model.filepath = str(final_path)
-        self._image_model.save()
-
         # サムネイル生成・DB更新
         thumb_path = self._save_thumbnail_from_filepath(self._image_model)
         self._image_model.thumbnail_filepath = str(thumb_path)
@@ -1964,3 +1989,14 @@ class ImageEditorScreen(BaseScreen):
     def _on_back_clicked(self) -> None:
         """戻るボタンクリック."""
         self.back_requested.emit()
+
+    def _on_open_in_photoshop(self) -> None:
+        """Photoshopで画像を開く."""
+        if not self._image_model or not self._image_model.original_filepath:
+            return
+
+        path = Path(self._image_model.original_filepath)
+        if not path.exists():
+            return
+
+        subprocess.Popen(["open", "-b", "com.adobe.Photoshop", str(path)])
