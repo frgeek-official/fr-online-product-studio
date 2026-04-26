@@ -5,7 +5,7 @@
 
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, ImageOps
 from PySide6.QtCore import Signal
 
 from fr_studio.infrastructure.google_sheets_client import GoogleSheetsClient, SheetItem
@@ -227,6 +227,7 @@ class ProjectCreationWorker(BaseWorker):
             リサイズ版のパス
         """
         image = Image.open(original_path)
+        image = ImageOps.exif_transpose(image)
 
         # RGBに変換
         if image.mode != "RGB":

@@ -67,6 +67,7 @@ class ProductImageService:
             else (product_image.filepath or product_image.original_filepath)
         )
         original = Image.open(source_path)
+        original = ImageOps.exif_transpose(original)
         original_width = original.width
         if original.mode != "RGBA":
             original = original.convert("RGBA")
